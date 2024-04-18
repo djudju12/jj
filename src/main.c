@@ -115,31 +115,33 @@ int next_token(Json_Tokenizer *tokenizer) {
 #define MAX_ENTRIES_JSON 256
 
 typedef
+enum {
+    JSON_ARRAY ,
+    JSON_OBJECT,
+    JSON_STRING,
+} Json_Type;
+
+typedef
 struct {
     char s[MAX_STR_LEN];
     unsigned int len;
 } Json_String;
 
-typedef
-struct {
+typedef struct Object Object;
+
+struct Object {
     Json_String key;
     union {
-        struct Key_Value *key_value;
+        Object *object;
         Json_String *string;
     } as;
-} Key_Value;
-
-typedef Key_Value Object;
-
-typedef
-enum {
-    JSON_ARRAY,
-    JSON_OBJECT
-} Json_Type;
+    Json_Type type;
+};
 
 typedef
 union {
-    Key_Value *object[1024];
+    Object *object[1024];
+    /* TODO: add array type */
 } _JSON;
 
 typedef
@@ -216,6 +218,7 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
         case TOKEN_STRING: {
             object->as.string = malloc(sizeof(Json_String));
             parse_string(object->as.string, tokenizer->token->value);
+            object->type = JSON_STRING;
         } break;
 
         default: {
@@ -225,15 +228,75 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
     }
 }
 
+char *c_str(Json_String j_str) {
+    char *s = malloc(sizeof(char) * j_str.len+1);
+    memmove(s, j_str.s, j_str.len+1);
+    s[j_str.len+1] = '\0';
+    return s;
+}
+
+#define MAKE_INDENT(n, d) (n)*(d), ' '
+
+void print_object(Object *obj, int indent, int depth) {
+    if (obj == NULL) return;
+
+    fprintf(stdout, "%*c\"%s\": ", MAKE_INDENT(indent, depth), c_str(obj->key));
+    switch (obj->type) {
+        case JSON_OBJECT: {
+            fprintf(stdout, "{\n");
+            Object *nested_obj = obj->as.object;
+            print_object(nested_obj, indent, depth + 1);
+            fprintf(stdout, "%*c}\n", MAKE_INDENT(indent, depth));
+        } break;
+
+        case JSON_STRING: {
+            Json_String *j_str = obj->as.string;
+            fprintf(stdout, "\"%s\"", c_str(*j_str));
+            break;
+        }
+
+        default: {
+            fprintf(stderr, "%d\n", obj->type);
+            assert(0 && "TODO: add proper error handling for malformat json");
+        } break;
+    }
+}
+
+void print_json(Json *json, int indent) {
+    switch(json->type) {
+        case JSON_OBJECT: {
+            fprintf(stdout, "{\n");
+            unsigned int i = 0;
+            Object *obj = json->as.object[i];
+            while (1) {
+                print_object(obj, indent, 1);
+                obj = json->as.object[++i];
+                fprintf(stdout, obj != NULL ? ",\n" : "\n");
+                if (obj == NULL) break;
+            }
+            fprintf(stdout, "}\n");
+        } break;
+
+        case JSON_ARRAY: {
+            assert(0 && "TODO: not implemented");
+        } break;
+
+        default: {
+            assert(0 && "TODO: add a proper error handling for malformed JSON");
+        }
+    }
+}
+
 Json json = {0};
 int main(void) {
     char *j = "{\"hello\":\"world\", \"another\": \"key value\"}";
+
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));
     tokenizer->json_str = j;
     tokenizer->cursor = 0;
 
     parse_json(&json, tokenizer);
-
+    print_json(&json, 2);
     return 0;
 }
