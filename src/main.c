@@ -109,8 +109,6 @@ int next_token(Json_Tokenizer *tokenizer) {
     return 0;
 }
 
-
-
 //// parser
 #define MAX_ENTRIES_JSON 256
 
@@ -212,8 +210,8 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
 
     assert(next_token(tokenizer) != -1);
     assert(tokenizer->token->type == TOKEN_COLON);
-
     assert(next_token(tokenizer) != -1);
+
     switch(tokenizer->token->type) {
         case TOKEN_STRING: {
             object->as.string = malloc(sizeof(Json_String));
@@ -230,7 +228,7 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
 
 char *c_str(Json_String j_str) {
     char *s = malloc(sizeof(char) * j_str.len+1);
-    memmove(s, j_str.s, j_str.len+1);
+    memcpy(s, j_str.s, j_str.len+1);
     s[j_str.len+1] = '\0';
     return s;
 }
@@ -289,7 +287,7 @@ void print_json(Json *json, int indent) {
 
 Json json = {0};
 int main(void) {
-    char *j = "{\"hello\":\"world\", \"another\": \"key value\"}";
+    char *j = "{\"obj\": {\"hello\":\"world\", \"another\": \"key value\"}}";
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));
