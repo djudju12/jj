@@ -237,18 +237,16 @@ char *c_str(Json_String j_str) {
     return s;
 }
 
-#define MAKE_INDENT(n, d) (n)*(d), ' '
-
 void print_object(Object *obj, int indent, int depth) {
     if (obj == NULL) return;
 
-    fprintf(stdout, "%*c\"%s\": ", MAKE_INDENT(indent, depth), c_str(obj->key));
+    fprintf(stdout, "%*c\"%s\": ", indent*depth, ' ', c_str(obj->key));
     switch (obj->type) {
         case JSON_OBJECT: {
             fprintf(stdout, "{\n");
             Object *nested_obj = obj->as.object;
             print_object(nested_obj, indent, depth + 1);
-            fprintf(stdout, "%*c}\n", MAKE_INDENT(indent, depth));
+            fprintf(stdout, "%*c}\n", indent*depth, ' ');
         } break;
 
         case JSON_STRING: {
