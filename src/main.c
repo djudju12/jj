@@ -69,47 +69,30 @@ int next_token(Json_Tokenizer *tokenizer) {
     if (c == EOJ) return -1;
 
     unsigned int i = 0;
+    if (c == '"') {
+        while (c != EOJ && (c = next_char(tokenizer)) != '"') {
+            tokenizer->token->value[i++] = c;
+        }
+
+        tokenizer->token->value[i] = '\0';
+        tokenizer->token->type = TOKEN_STRING;
+        return 0;
+    }
+
     switch (c) {
-        case '"': {
-            while (c != EOJ && (c = next_char(tokenizer)) != '"') {
-                tokenizer->token->value[i++] = c;
-            }
-
-            tokenizer->token->value[i] = '\0';
-            tokenizer->token->type = TOKEN_STRING;
-        } break;
-
-        case '{': {
-            tokenizer->token->value[i++] = c;
-            tokenizer->token->value[i] = '\0';
-            tokenizer->token->type = TOKEN_OPBRAKT;
-        } break;
-
-        case '}': {
-            tokenizer->token->value[i++] = c;
-            tokenizer->token->value[i] = '\0';
-            tokenizer->token->type = TOKEN_CLBRAKT;
-        } break;
-
-        case ':': {
-            tokenizer->token->value[i++] = c;
-            tokenizer->token->value[i] = '\0';
-            tokenizer->token->type = TOKEN_COLON;
-        } break;
-
-        case ',': {
-            tokenizer->token->value[i++] = c;
-            tokenizer->token->value[i] = '\0';
-            tokenizer->token->type = TOKEN_COMMA;
-        } break;
-
+        case '{': tokenizer->token->type = TOKEN_OPBRAKT; break;
+        case '}': tokenizer->token->type = TOKEN_CLBRAKT; break;
+        case ':': tokenizer->token->type = TOKEN_COLON;   break;
+        case ',': tokenizer->token->type = TOKEN_COMMA;   break;
         default: {
             fprintf(stderr, "Invalid token => %c\n", c);
             exit(1);
         }
     }
 
+    tokenizer->token->value[i++] = c;
     tokenizer->token->value[i] = '\0';
+
     return 0;
 }
 
