@@ -6,9 +6,8 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-#define THROW_NOT_IMPLEMENTED(msg) assert(0 && "TODO: Not Implemented "msg)
-
-#define THROW_UNEXPECTED_END_OF_INPUT { fprintf(stderr, "unexpected end of input\n"); assert(0); }
+#define THROW_NOT_IMPLEMENTED(msg) assert(0 && "TODO: Not Implemented "msg"\n")
+#define THROW_UNEXPECTED_END_OF_INPUT assert(0 && "unexpected end of input\n")
 
 typedef
 enum {
@@ -151,7 +150,7 @@ struct {
 void parse_object(Object *object, Json_Tokenizer *tokenizer);
 
 void parse_json(Json *root, Json_Tokenizer *tokenizer) {
-    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
 
     assert(root->type == 0 && "root type must not be set before parsing");
 
@@ -165,13 +164,13 @@ void parse_json(Json *root, Json_Tokenizer *tokenizer) {
             parse_object(object, tokenizer);
             root->as.object[cnt++] = object;
 
-            if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+            if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
 
             while (tokenizer->token->type == TOKEN_COMMA) {
                 Object *object = malloc(sizeof(Object));
                 root->as.object[cnt++] = object;
                 parse_object(object, tokenizer);
-                if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+                if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
             }
 
             if (tokenizer->token->type != TOKEN_CLBRAKT) {
@@ -208,14 +207,14 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
 
     parse_string(&object->key, tokenizer->token->value);
 
-    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
 
     if (tokenizer->token->type != TOKEN_COLON) {
         fprintf(stderr, "Expected %s find %s", token_desc(TOKEN_COLON), token_desc(tokenizer->token->type));
         exit(1);
     }
 
-    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
 
     switch(tokenizer->token->type) {
         case TOKEN_STRING: {
