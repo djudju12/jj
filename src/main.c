@@ -6,6 +6,10 @@
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
+#define THROW_NOT_IMPLEMENTED(msg) assert(0 && "TODO: Not Implemented "msg)
+
+#define THROW_UNEXPECTED_END_OF_INPUT { fprintf(stderr, "unexpected end of input\n"); assert(0); }
+
 typedef
 enum {
     TOKEN_OPBRAKT,
@@ -29,6 +33,10 @@ _Static_assert(
     "assert that you have implemented the description of all tokens"
 );
 
+char *token_desc(Token_Type token_type) {
+    return TOKEN_DESCRIPTION[token_type];
+}
+
 #define MAX_STR_LEN 1024
 
 typedef
@@ -36,10 +44,6 @@ struct {
     char value[MAX_STR_LEN];
     Token_Type type;
 } Json_Token;
-
-char *token_desc(Token_Type token_type) {
-    return TOKEN_DESCRIPTION[token_type];
-}
 
 #define FMT_TOKEN "( %s ) => %s"
 #define ARG_TOKEN(t) (t)->value, token_desc((t->type))
@@ -100,7 +104,7 @@ int next_token(Json_Tokenizer *tokenizer) {
         } break;
 
         default: {
-            fprintf(stderr, "Invalid token => %c \n", c);
+            fprintf(stderr, "Invalid token => %c\n", c);
             exit(1);
         }
     }
@@ -114,10 +118,26 @@ int next_token(Json_Tokenizer *tokenizer) {
 
 typedef
 enum {
-    JSON_ARRAY ,
-    JSON_OBJECT,
-    JSON_STRING,
+    JSON_ARRAY       ,
+    JSON_OBJECT      ,
+    JSON_STRING      ,
+    _TOTAL_JSON_TYPES,
 } Json_Type;
+
+char* JSON_TYPE_DESCRIPTION[] = {
+    [JSON_ARRAY]  = "JSON_ARRAY" ,
+    [JSON_OBJECT] = "JSON_OBJECT",
+    [JSON_STRING] = "JSON_STRING",
+};
+
+_Static_assert(
+    ARRAY_SIZE(JSON_TYPE_DESCRIPTION) == _TOTAL_JSON_TYPES,
+    "assert that you have implemented the description of all the `Json_Type`'s"
+);
+
+char *json_type_desc(Json_Type json_type) {
+    return JSON_TYPE_DESCRIPTION[json_type];
+}
 
 typedef
 struct {
@@ -137,50 +157,47 @@ struct Object {
 };
 
 typedef
-union {
-    Object *object[1024];
-    /* TODO: add array type */
-} _JSON;
-
-typedef
 struct {
-    _JSON as;
+    union {
+        Object *object[1024];
+        /* TODO: add array type */
+    } as;
     Json_Type type;
 } Json;
 
 void parse_object(Object *object, Json_Tokenizer *tokenizer);
 
 void parse_json(Json *root, Json_Tokenizer *tokenizer) {
-    assert(next_token(tokenizer) != -1 && "expted [TOKEN_OPBRAKT, ] got End of Input");
+    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+
+    assert(root->type == 0 && "root type must not be set before parsing");
 
     unsigned int cnt = 0;
     switch (tokenizer->token->type) {
         case TOKEN_OPBRAKT: {
-            assert(root->type == 0);
             root->type = JSON_OBJECT;
 
             Object *object = malloc(sizeof(Object));
 
             parse_object(object, tokenizer);
             root->as.object[cnt++] = object;
-            assert(next_token(tokenizer) != -1 && "expted TOKEN_COMMA got End of Input");
+
+            if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+
             while (tokenizer->token->type == TOKEN_COMMA) {
                 Object *object = malloc(sizeof(Object));
                 root->as.object[cnt++] = object;
                 parse_object(object, tokenizer);
-                assert(next_token(tokenizer) != -1 && "expted TOKEN_COMMA got End of Input");
+                if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
             }
 
             if (tokenizer->token->type != TOKEN_CLBRAKT) {
-                fprintf(stderr, "Expected end of input got"FMT_TOKEN, ARG_TOKEN(tokenizer->token));
-                exit(1);
+                fprintf(stderr, "data after end of json ignored\n");
             }
-
         } break;
 
         default: {
-            fprintf(stderr, "Parse for "FMT_TOKEN" Not Implemented", ARG_TOKEN(tokenizer->token));
-            exit(1);
+            THROW_NOT_IMPLEMENTED("Only object type is implemented");
         } break;
     }
 }
@@ -208,9 +225,14 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
 
     parse_string(&object->key, tokenizer->token->value);
 
-    assert(next_token(tokenizer) != -1);
-    assert(tokenizer->token->type == TOKEN_COLON);
-    assert(next_token(tokenizer) != -1);
+    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
+
+    if (tokenizer->token->type != TOKEN_COLON) {
+        fprintf(stderr, "Expected %s find %s", token_desc(TOKEN_COLON), token_desc(tokenizer->token->type));
+        exit(1);
+    }
+
+    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT
 
     switch(tokenizer->token->type) {
         case TOKEN_STRING: {
@@ -220,8 +242,7 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
         } break;
 
         default: {
-            fprintf(stderr, "Parse for "FMT_TOKEN" Not Implemented", ARG_TOKEN(tokenizer->token));
-            exit(1);
+            THROW_NOT_IMPLEMENTED("Only string type is implemented");
         }
     }
 }
@@ -254,9 +275,8 @@ void print_object(Object *obj, int indent, int depth) {
         }
 
         default: {
-            fprintf(stderr, "%d\n", obj->type);
-            assert(0 && "TODO: add proper error handling for malformat json");
-        } break;
+            THROW_NOT_IMPLEMENTED("add proper error handling for malformat json");
+        }
     }
 }
 
@@ -276,18 +296,18 @@ void print_json(Json *json, int indent) {
         } break;
 
         case JSON_ARRAY: {
-            assert(0 && "TODO: not implemented");
+            THROW_NOT_IMPLEMENTED("Array not implemented");
         } break;
 
         default: {
-            assert(0 && "TODO: add a proper error handling for malformed JSON");
+            THROW_NOT_IMPLEMENTED("TODO: add a proper error handling for malformed JSON");
         }
     }
 }
 
 Json json = {0};
 int main(void) {
-    char *j = "{\"obj\": {\"hello\":\"world\", \"another\": \"key value\"}}";
+    char *j = "{\"hello\":\"world\", \"another\": \"key value\"}";
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));

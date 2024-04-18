@@ -1,6 +1,5 @@
 CC=gcc
-CFLAGS+= -std=c99 -flto -Wall -Wextra -Wpedantic \
--Wformat=2 -Wconversion -Wundef -Winline -Wimplicit-fallthrough
+CFLAGS+= -std=c99 -Wall -Wextra -Wpedantic -Wundef -Wimplicit-fallthrough
 
 # -O3 -march=native -mtune=native
 
