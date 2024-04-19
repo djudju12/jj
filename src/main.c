@@ -3,11 +3,35 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <stdarg.h>
+#include <stdbool.h>
+
+///////
+typedef
+struct {
+    FILE *finfo;       // default stdout
+    FILE *fwarning;    // default stdout
+    FILE *fdebug;      // default stdout
+    FILE *ferror;      // default stderr
+    long int max_size; // default 256
+    bool debug;        // default false
+} Log_Config;
+
+Log_Config log_config;
+
+// call `log_init(NULL);` to use default values.
+// You dont have to provide all values if you and to modify something,
+// fallback is the defaults
+void log_init(Log_Config *config);
+
+void log_info(char *fmt, ...);
+void log_error(const char *fmt, ...);
+void log_warning(const char *fmt, ...);
+void log_debug(const char *fmt, ...);
+void panic(const char *fmt, ...);
+//////
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
-#define THROW_NOT_IMPLEMENTED(msg) assert(0 && "TODO: Not Implemented "msg)
-#define THROW_UNEXPECTED_END_OF_INPUT assert(0 && "unexpected end of input\n")
 
 typedef
 enum {
@@ -94,6 +118,8 @@ int next_token(Json_Tokenizer *tokenizer) {
 
     return 0;
 }
+
+#define THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(t) if (next_token(t) == -1) panic("unexpected end of input");
 
 //// parser
 typedef
@@ -191,7 +217,7 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
         object->entries[*i].key = malloc(sizeof(char) * len);
         strncpy(object->entries[*i].key, key, len);
     } else {
-        assert(object->entries[*i].type == type && "TODO: maybe enable updating to another type");
+        panic("TODO: maybe enable updating to another type");
     }
 
     switch(type) {
@@ -202,9 +228,11 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
             unsigned int str_len = value.string.len;
             if (json_str->content == NULL) {
                 json_str->content = malloc(sizeof(char) * str_len);
-                assert(json_str->content != NULL && "Out of memory");
-                json_str->len = str_len;
+                if (json_str->content == NULL) {
+                    panic("Out of memory");
+                }
 
+                json_str->len = str_len;
                 if (str_len) {
                     *json_str->content = '\0';
                     strncat(json_str->content, value.string.content, str_len);
@@ -234,7 +262,7 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
         } break;
 
         default: {
-            THROW_NOT_IMPLEMENTED("hm_put");
+            panic("Invalid Json Type %s", type);
         }
     }
 }
@@ -256,7 +284,9 @@ unsigned int json_geti(Object *object, const char *key) {
 char buffer[MAX_STR_LEN];
 
 void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
-    assert(str != NULL && "Caller must provide a valid pointer to Json_String");
+    if (str == NULL) {
+        panic("Caller must provide a valid pointer to Json_String");
+    }
 
     unsigned int len = 0;
     while(len < MAX_STR_LEN && c_str[len] != '\0') len++;
@@ -268,21 +298,23 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
 void parse_object(Object *object, Json_Tokenizer *tokenizer) {
     int cnt = 0;
     do {
-        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+        if (next_token(tokenizer) == -1) {
+            panic("Unexpected end of input");
+        }
+
         if (tokenizer->token->type != TOKEN_STRING) {
-            fprintf(stderr, "Expected TOKEN_STRING find %s", token_desc(tokenizer->token->type));
-            exit(1);
+            panic("Expected TOKEN_STRING find %s", token_desc(tokenizer->token->type));
         }
 
         memmove(buffer, tokenizer->token->value, MAX_STR_LEN);
 
-        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+
         if (tokenizer->token->type != TOKEN_COLON) {
-            fprintf(stderr, "Expected `:` find %s", tokenizer->token->value);
-            exit(1);
+            panic("Expected `:` find %s", tokenizer->token->value);
         }
 
-        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
 
         switch(tokenizer->token->type) {
             case TOKEN_STRING: {
@@ -306,23 +338,25 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
             } break;
 
             default: {
-                fprintf(stderr, FMT_TOKEN"\n", ARG_TOKEN(tokenizer->token));
-                THROW_NOT_IMPLEMENTED("rest of types");
+                panic("Not a valid token "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
             }
         }
 
-        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+
     } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
 
     if (tokenizer->token->type != TOKEN_CLBRAKT) {
-        fprintf(stderr, "data after end of json ignored\n");
+        log_warning("data after end of json ignored");
     }
 }
 
 void parse_json(Json *root, Json_Tokenizer *tokenizer) {
-    if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+    THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
 
-    assert(root->type == 0 && "root type must not be set before parsing");
+    if (root->type != 0) {
+        panic("root type must not be set before parsing");
+    }
 
     switch (tokenizer->token->type) {
         case TOKEN_OPBRAKT: {
@@ -332,16 +366,68 @@ void parse_json(Json *root, Json_Tokenizer *tokenizer) {
         } break;
 
         default: {
-            THROW_NOT_IMPLEMENTED("Only object type is implemented");
+            panic("Expected `[` or `{` finded %s", tokenizer->token->value);
         } break;
     }
 }
 
+void log_init(Log_Config *config) {
+    if (config == NULL) {
+        log_config.fdebug = stderr;
+        log_config.finfo = stdout;
+        log_config.fwarning = stdout;
+        log_config.fdebug = stdout;
+        log_config.ferror = stdout;
+        log_config.max_size = 256;
+        log_config.debug = true;
+    } else {
+        log_config.fdebug = config->fdebug == NULL ? stderr : config->fdebug;
+        log_config.fwarning = config->fwarning == NULL ? stdout : config->fwarning;
+        log_config.finfo = config->finfo == NULL ? stdout : config->finfo;
+        log_config.fdebug = config->fdebug == NULL ? stdout : config->fdebug;
+        log_config.ferror = config->ferror == NULL ? stdout : config->ferror;
+        log_config.max_size = config->max_size == 0 ? 256 : config->max_size;
+        log_config.debug = config->debug;
+    }
+}
 
+#define _log_wrapper(file, pattern, fmt) {\
+    assert(file != NULL && "file in logging configuration not provided. Maybe you forgot to call `log_init(config);`"); \
+    va_list valist; \
+    va_start(valist, fmt); \
+    char info[log_config.max_size]; \
+    snprintf(info, log_config.max_size, pattern"%s\n", fmt); \
+    vfprintf(file, info, valist); \
+    va_end(valist); \
+} \
 
+void log_info(char *fmt, ...) {
+    _log_wrapper(log_config.finfo, "[ INFO ] ", fmt)
+}
+
+void log_error(const char *fmt, ...) {
+    _log_wrapper(log_config.finfo, "[ ERROR ] ", fmt)
+}
+
+void log_warning(const char *fmt, ...) {
+    _log_wrapper(log_config.finfo, "[ WARNING ] ", fmt)
+}
+
+void log_debug(const char *fmt, ...) {
+    if (!log_config.debug) return;
+    _log_wrapper(log_config.finfo, "[ DEBUG ] ", fmt)
+}
+
+void panic(const char *fmt, ...) {
+    _log_wrapper(log_config.ferror, "[ ERROR ] ", fmt)
+    exit(1);
+}
+
+/////////////
 Json json = {0};
 int main(void) {
     char *j = "{\"hello\":\"world\", \"another\": {\"key\": \"value\"}}";
+    log_init(NULL);
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));

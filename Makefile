@@ -3,11 +3,11 @@ CFLAGS+= -std=c99 -Wall -Wextra -Wpedantic -Wundef -Wimplicit-fallthrough
 
 # -O3 -march=native -mtune=native
 
-out/:
-	mkdir -p out
-
 build: out/ src/main.c
 	$(CC) $(CFLAGS) -o out/jj src/main.c
+
+out/:
+	mkdir -p out
 
 run: build
 	./out/jj
