@@ -20,7 +20,7 @@ struct {
 Log_Config log_config;
 
 // call `log_init(NULL);` to use default values.
-// You dont have to provide all values if you and to modify something,
+// You dont have to provide all values if you want to modify something,
 // fallback is the defaults
 void log_init(Log_Config *config);
 
@@ -109,10 +109,10 @@ int next_token(Json_Tokenizer *tokenizer) {
     switch (c) {
         case '{': tokenizer->token->type = TOKEN_OPCBRAKT; break;
         case '}': tokenizer->token->type = TOKEN_CLCBRAKT; break;
-        case '[': tokenizer->token->type = TOKEN_OPBRAKT; break;
-        case ']': tokenizer->token->type = TOKEN_CLBRAKT; break;
-        case ':': tokenizer->token->type = TOKEN_COLON;   break;
-        case ',': tokenizer->token->type = TOKEN_COMMA;   break;
+        case '[': tokenizer->token->type = TOKEN_OPBRAKT;  break;
+        case ']': tokenizer->token->type = TOKEN_CLBRAKT;  break;
+        case ':': tokenizer->token->type = TOKEN_COLON;    break;
+        case ',': tokenizer->token->type = TOKEN_COMMA;    break;
         default: {
             fprintf(stderr, "Invalid token => %c\n", c);
             exit(1);
@@ -296,7 +296,6 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
 
     unsigned int len = 0;
     while(len < MAX_STR_LEN && c_str[len] != '\0') len++;
-    assert(len);
     str->content = c_str;
     str->len = len;
 }
@@ -304,9 +303,7 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
 void parse_object(Object *object, Json_Tokenizer *tokenizer) {
     int cnt = 0;
     do {
-        if (next_token(tokenizer) == -1) {
-            panic("Unexpected end of input");
-        }
+        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
 
         if (tokenizer->token->type != TOKEN_STRING) {
             panic("Expected TOKEN_STRING find %s", token_desc(tokenizer->token->type));
@@ -442,8 +439,7 @@ void panic(const char *fmt, ...) {
 /////////////
 Json json = {0};
 int main(void) {
-    // char *j = "{\"hello\":\"world\", \"another\": {\"key\": \"value\"}}";
-    char *j = "[\"hello\"]";
+    char *j = "{\"\":\"\"}";
     log_init(NULL);
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
@@ -451,27 +447,7 @@ int main(void) {
     tokenizer->json_str = j;
     tokenizer->cursor = 0;
 
-    // example
     parse_json(&json, tokenizer);
-
-    Object *map = json.as.object;
-    unsigned int i = json_geti(map, "hello");
-    fprintf(stdout,
-        "%s: %s\n",
-        map->entries[i].key,
-        map->entries[i].value_as.string.content
-    );
-
-    i = json_geti(map, "another");
-    Object *another = map->entries[i].value_as.object;
-    unsigned int anotheri = json_geti(another, "key");
-    fprintf(stdout,
-        "%s: \n\t%s: %s\n",
-        map->entries[i].key,
-        another->entries[anotheri].key,
-        another->entries[anotheri].value_as.string.content
-
-    );
 
     return 0;
 }
