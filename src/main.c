@@ -35,20 +35,24 @@ void panic(const char *fmt, ...);
 
 typedef
 enum {
+    TOKEN_OPCBRAKT,
+    TOKEN_CLCBRAKT,
     TOKEN_OPBRAKT,
     TOKEN_CLBRAKT,
-    TOKEN_STRING ,
-    TOKEN_COLON  ,
-    TOKEN_COMMA  ,
-    _TOTAL_TOKENS,
+    TOKEN_STRING  ,
+    TOKEN_COLON   ,
+    TOKEN_COMMA   ,
+    _TOTAL_TOKENS ,
 } Token_Type;
 
 char* TOKEN_DESCRIPTION[] = {
-    [TOKEN_OPBRAKT]  = "TOKEN_OPBRAKT",
-    [TOKEN_CLBRAKT]  = "TOKEN_CLBRAKT",
-    [TOKEN_STRING]   = "TOKEN_STRING" ,
-    [TOKEN_COLON]    = "TOKEN_COLON"  ,
-    [TOKEN_COMMA]    = "TOKEN_COMMA"  ,
+    [TOKEN_OPCBRAKT]  = "TOKEN_OPCBRAKT",
+    [TOKEN_CLCBRAKT]  = "TOKEN_CLCBRAKT",
+    [TOKEN_OPBRAKT]   = "TOKEN_OPBRAKT" ,
+    [TOKEN_CLBRAKT]   = "TOKEN_CLBRAKT" ,
+    [TOKEN_STRING]    = "TOKEN_STRING"  ,
+    [TOKEN_COLON]     = "TOKEN_COLON"   ,
+    [TOKEN_COMMA]     = "TOKEN_COMMA"   ,
 };
 
 _Static_assert(
@@ -103,8 +107,10 @@ int next_token(Json_Tokenizer *tokenizer) {
     }
 
     switch (c) {
-        case '{': tokenizer->token->type = TOKEN_OPBRAKT; break;
-        case '}': tokenizer->token->type = TOKEN_CLBRAKT; break;
+        case '{': tokenizer->token->type = TOKEN_OPCBRAKT; break;
+        case '}': tokenizer->token->type = TOKEN_CLCBRAKT; break;
+        case '[': tokenizer->token->type = TOKEN_OPBRAKT; break;
+        case ']': tokenizer->token->type = TOKEN_CLBRAKT; break;
         case ':': tokenizer->token->type = TOKEN_COLON;   break;
         case ',': tokenizer->token->type = TOKEN_COMMA;   break;
         default: {
@@ -326,7 +332,7 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
                 hm_put(object, buffer, value, JSON_STRING);
             } break;
 
-            case TOKEN_OPBRAKT: {
+            case TOKEN_OPCBRAKT: {
                 Json_Value value = {0};
                 value.object = malloc(sizeof(Object));;
 
@@ -337,6 +343,11 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
                 parse_object(value.object, tokenizer);
             } break;
 
+            case TOKEN_OPBRAKT: {
+                panic("TODO: array not implemented");
+                break;
+            }
+
             default: {
                 panic("Not a valid token "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
             }
@@ -346,7 +357,7 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
 
     } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
 
-    if (tokenizer->token->type != TOKEN_CLBRAKT) {
+    if (tokenizer->token->type != TOKEN_CLCBRAKT) {
         log_warning("data after end of json ignored");
     }
 }
@@ -359,14 +370,19 @@ void parse_json(Json *root, Json_Tokenizer *tokenizer) {
     }
 
     switch (tokenizer->token->type) {
-        case TOKEN_OPBRAKT: {
+        case TOKEN_OPCBRAKT: {
             root->type = JSON_OBJECT;
             root->as.object = malloc(sizeof(Object));
             parse_object(root->as.object, tokenizer);
         } break;
 
+        case TOKEN_OPBRAKT: {
+            panic("TODO: array not implemented");
+            break;
+        }
+
         default: {
-            panic("Expected `[` or `{` finded %s", tokenizer->token->value);
+            panic("Expected `[` or `{` finded "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
         } break;
     }
 }
@@ -426,7 +442,8 @@ void panic(const char *fmt, ...) {
 /////////////
 Json json = {0};
 int main(void) {
-    char *j = "{\"hello\":\"world\", \"another\": {\"key\": \"value\"}}";
+    // char *j = "{\"hello\":\"world\", \"another\": {\"key\": \"value\"}}";
+    char *j = "[\"hello\"]";
     log_init(NULL);
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
