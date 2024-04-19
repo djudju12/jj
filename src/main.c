@@ -202,6 +202,7 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
             unsigned int str_len = value.string.len;
             if (json_str->content == NULL) {
                 json_str->content = malloc(sizeof(char) * str_len);
+                assert(json_str->content != NULL && "Out of memory");
                 json_str->len = str_len;
 
                 if (str_len) {
@@ -222,7 +223,14 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
         } break;
 
         case JSON_OBJECT: {
-            THROW_NOT_IMPLEMENTED("JSON_OBJECT");
+            object->entries[*i].type = JSON_OBJECT;
+            Object *old_object = object->entries[*i].value_as.object;
+            if (old_object != NULL) {
+                object->entries[*i].value_as.object = value.object;
+                free(old_object);
+            } else {
+                object->entries[*i].value_as.object = value.object;
+            }
         } break;
 
         default: {
@@ -245,6 +253,8 @@ unsigned int json_geti(Object *object, const char *key) {
 }
 
 /////////////////////////////////
+char buffer[MAX_STR_LEN];
+
 void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
     assert(str != NULL && "Caller must provide a valid pointer to Json_String");
 
@@ -255,62 +265,70 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
     str->len = len;
 }
 
-char buffer[MAX_STR_LEN];
+void parse_object(Object *object, Json_Tokenizer *tokenizer) {
+    int cnt = 0;
+    do {
+        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+        if (tokenizer->token->type != TOKEN_STRING) {
+            fprintf(stderr, "Expected TOKEN_STRING find %s", token_desc(tokenizer->token->type));
+            exit(1);
+        }
+
+        memmove(buffer, tokenizer->token->value, MAX_STR_LEN);
+
+        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+        if (tokenizer->token->type != TOKEN_COLON) {
+            fprintf(stderr, "Expected `:` find %s", tokenizer->token->value);
+            exit(1);
+        }
+
+        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+
+        switch(tokenizer->token->type) {
+            case TOKEN_STRING: {
+                Json_Value value = {0};
+                Json_String str = {0};
+                parse_string(&str, tokenizer->token->value);
+                value.string.content = str.content;
+                value.string.len = str.len;
+                hm_put(object, buffer, value, JSON_STRING);
+            } break;
+
+            case TOKEN_OPBRAKT: {
+                Json_Value value = {0};
+                value.object = malloc(sizeof(Object));;
+
+                // its important to do the put before parsing the pointer
+                // so other nested objects can use the buffer
+                hm_put(object, buffer, value, JSON_OBJECT);
+
+                parse_object(value.object, tokenizer);
+            } break;
+
+            default: {
+                fprintf(stderr, FMT_TOKEN"\n", ARG_TOKEN(tokenizer->token));
+                THROW_NOT_IMPLEMENTED("rest of types");
+            }
+        }
+
+        if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
+    } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
+
+    if (tokenizer->token->type != TOKEN_CLBRAKT) {
+        fprintf(stderr, "data after end of json ignored\n");
+    }
+}
+
 void parse_json(Json *root, Json_Tokenizer *tokenizer) {
     if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
 
     assert(root->type == 0 && "root type must not be set before parsing");
 
-    unsigned int cnt = 0;
     switch (tokenizer->token->type) {
         case TOKEN_OPBRAKT: {
             root->type = JSON_OBJECT;
             root->as.object = malloc(sizeof(Object));
-
-            do {
-                if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
-                if (tokenizer->token->type != TOKEN_STRING) {
-                    fprintf(stderr, "Expected TOKEN_STRING find %s", token_desc(tokenizer->token->type));
-                    exit(1);
-                }
-
-                memmove(buffer, tokenizer->token->value, MAX_STR_LEN);
-
-                if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
-                if (tokenizer->token->type != TOKEN_COLON) {
-                    fprintf(stderr, "Expected `:` find %s", tokenizer->token->value);
-                    exit(1);
-                }
-
-                if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
-
-                switch(tokenizer->token->type) {
-                    case TOKEN_STRING: {
-                        Json_String str = {0};
-                        parse_string(&str, tokenizer->token->value);
-                        Json_Value value = {
-                            .string = {
-                                .content = str.content,
-                                .len = str.len
-                            }
-                        };
-
-                        hm_put(root->as.object, buffer, value, JSON_STRING);
-                    } break;
-
-                    default: {
-                        fprintf(stderr, FMT_TOKEN"\n", ARG_TOKEN(tokenizer->token));
-                        THROW_NOT_IMPLEMENTED("rest of types");
-                    }
-                }
-
-                if (next_token(tokenizer) == -1) THROW_UNEXPECTED_END_OF_INPUT;
-            } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
-
-            if (tokenizer->token->type != TOKEN_CLBRAKT) {
-                fprintf(stderr, "data after end of json ignored\n");
-            }
-
+            parse_object(root->as.object, tokenizer);
         } break;
 
         default: {
@@ -319,9 +337,11 @@ void parse_json(Json *root, Json_Tokenizer *tokenizer) {
     }
 }
 
+
+
 Json json = {0};
 int main(void) {
-    char *j = "{\"hello\":\"world\", \"another\": \"key value\"}";
+    char *j = "{\"hello\":\"world\", \"another\": {\"key\": \"value\"}}";
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));
@@ -340,10 +360,14 @@ int main(void) {
     );
 
     i = json_geti(map, "another");
+    Object *another = map->entries[i].value_as.object;
+    unsigned int anotheri = json_geti(another, "key");
     fprintf(stdout,
-        "%s: %s\n",
+        "%s: \n\t%s: %s\n",
         map->entries[i].key,
-        map->entries[i].value_as.string.content
+        another->entries[anotheri].key,
+        another->entries[anotheri].value_as.string.content
+
     );
 
     return 0;
