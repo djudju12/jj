@@ -410,8 +410,6 @@ unsigned int json_geti(Object *object, const char *key) {
 }
 
 /////////////////////////////////
-char buffer[MAX_STR_LEN];
-
 void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
     if (str == NULL) {
         panic("Caller must provide a valid pointer to Json_String");
@@ -425,6 +423,8 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
 
 void parse_object(Object *object, Json_Tokenizer *tokenizer) {
     double mstrtod(char *value);
+
+    char buffer[MAX_STR_LEN];
 
     int cnt = 0;
     do {
@@ -594,7 +594,7 @@ int main(void) {
 
     log_init(&config);
 
-    char *j = "{\"NULL\": null}";
+    char *j = "{\"string\": \"teste\"}";
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));
     tokenizer->json_str = j;
@@ -603,6 +603,8 @@ int main(void) {
     parse_json(&json, tokenizer);
 
     Object *obj = json.as.object;
+    unsigned int i = json_geti(obj, "string");
+    printf("%s: %s\n", obj->entries[i].key, obj->entries[i].value_as.string.content);
 
     return 0;
 }
