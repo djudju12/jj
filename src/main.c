@@ -43,6 +43,7 @@ enum {
     TOKEN_COLON   ,
     TOKEN_COMMA   ,
     TOKEN_NUMBER  ,
+    TOKEN_BOOLEAN ,
     _TOTAL_TOKENS ,
 } Token_Type;
 
@@ -55,6 +56,7 @@ char* TOKEN_DESCRIPTION[] = {
     [TOKEN_COLON]     = "TOKEN_COLON"   ,
     [TOKEN_COMMA]     = "TOKEN_COMMA"   ,
     [TOKEN_NUMBER]    = "TOKEN_NUMBER"  ,
+    [TOKEN_BOOLEAN]   = "TOKEN_BOOLEAN" ,
 };
 
 _Static_assert(
@@ -65,10 +67,15 @@ _Static_assert(
 // TODO: check max string len and max key len
 #define MAX_STR_LEN 1024
 
+typedef char Boolean;
+#define FALSE 0
+#define TRUE  1
+
 typedef
 union {
     char str[MAX_STR_LEN];
     double number;
+    Boolean boolean;
 } Token_Value;
 
 typedef
@@ -89,6 +96,9 @@ char *token_value(Json_Token *token) {
         char *out = malloc(sizeof(char)*256);
         snprintf(out, 256, "%f", token->as.number);
         return out;
+    } else if (token->type == TOKEN_BOOLEAN) {
+        if (token->as.boolean) return "true";
+        else return "false";
     } else {
         return token->as.str;
     }
@@ -194,6 +204,34 @@ int next_token(Json_Tokenizer *tokenizer) {
         return 0;
     }
 
+    /* boolean */
+    if (c == 'f') {
+
+        if (next_char(tokenizer) != 'a' ||
+            next_char(tokenizer) != 'l' ||
+            next_char(tokenizer) != 's' ||
+            next_char(tokenizer) != 'e')
+        {
+            panic("Unexpected character %s", c);
+        }
+
+        tokenizer->token->as.boolean = FALSE;
+        tokenizer->token->type = TOKEN_BOOLEAN;
+        return 0;
+    }
+
+    if (c == 't') {
+        if (next_char(tokenizer) != 'r' ||
+            next_char(tokenizer) != 'u' ||
+            next_char(tokenizer) != 'e')
+        {
+            panic("Unexpected character %s", c);
+        }
+
+        tokenizer->token->as.boolean = TRUE;
+        tokenizer->token->type = TOKEN_BOOLEAN;
+        return 0;
+    }
 
     /* rest of the 1 char tokens are readed in the string buffer */
     switch (c) {
@@ -224,14 +262,16 @@ enum {
     JSON_OBJECT      ,
     JSON_STRING      ,
     JSON_NUMBER      ,
+    JSON_BOOLEAN     ,
     _TOTAL_JSON_TYPES,
 } Json_Type;
 
 char* JSON_TYPE_DESCRIPTION[] = {
-    [JSON_ARRAY]  = "JSON_ARRAY" ,
-    [JSON_OBJECT] = "JSON_OBJECT",
-    [JSON_STRING] = "JSON_STRING",
-    [JSON_NUMBER] = "JSON_NUMBER",
+    [JSON_ARRAY]   = "JSON_ARRAY"  ,
+    [JSON_OBJECT]  = "JSON_OBJECT" ,
+    [JSON_STRING]  = "JSON_STRING" ,
+    [JSON_NUMBER]  = "JSON_NUMBER" ,
+    [JSON_BOOLEAN] = "JSON_BOOLEAN",
 };
 
 _Static_assert(
@@ -256,6 +296,7 @@ union {
     Object *object;
     Json_String string;
     double number;
+    Boolean boolean;
 } Json_Value;
 
 typedef
@@ -365,6 +406,11 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
             }
         } break;
 
+        case JSON_BOOLEAN: {
+            object->entries[*i].type = JSON_BOOLEAN;
+            object->entries[*i].value_as.boolean = value.boolean;
+        } break;
+
         default: {
             panic("Invalid Json Type %s", JSON_TYPE_DESCRIPTION[type]);
         }
@@ -442,6 +488,12 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
                 Json_Value value = {0};
                 value.number = tokenizer->token->as.number;
                 hm_put(object, buffer, value, JSON_NUMBER);
+            } break;
+
+            case TOKEN_BOOLEAN: {
+                Json_Value value = {0};
+                value.boolean = tokenizer->token->as.boolean;
+                hm_put(object, buffer, value, JSON_BOOLEAN);
             } break;
 
             case TOKEN_OPBRAKT: {
@@ -543,7 +595,7 @@ void panic(const char *fmt, ...) {
 /////////////
 Json json = {0};
 int main(void) {
-    char *j = "{\"hello\": 10e-2}";
+    char *j = "{\"false\": false, \"true\": true}";
     log_init(NULL);
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
@@ -554,8 +606,15 @@ int main(void) {
     parse_json(&json, tokenizer);
 
     Object *obj = json.as.object;
-    unsigned int i = json_geti(obj, "hello");
-    printf("{\"%s\": %lf}\n", obj->entries[i].key, obj->entries[i].value_as.number);
+    unsigned int i = json_geti(obj, "false");
+    if (!obj->entries[i].value_as.boolean) {
+        printf("false is false\n");
+    }
+
+    i = json_geti(obj, "true");
+    if (obj->entries[i].value_as.boolean) {
+        printf("true is true\n");
+    }
 
     return 0;
 }
