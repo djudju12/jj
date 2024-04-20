@@ -69,44 +69,17 @@ _Static_assert(
 // TODO: check max string len and max key len
 #define MAX_STR_LEN 1024
 
-typedef char Boolean;
-#define FALSE 0
-#define TRUE  1
-
-typedef void* Null;
-
-typedef
-union {
-    char str[MAX_STR_LEN];
-    double number;
-    Boolean boolean;
-    Null null;
-} Token_Value;
-
 typedef
 struct {
-    Token_Value as;
+    char value[MAX_STR_LEN];
     Token_Type type;
 } Json_Token;
 
 #define FMT_TOKEN "( %s ) => %s"
-#define ARG_TOKEN(t) token_value((t)), token_desc(((t)->type))
+#define ARG_TOKEN(t) (t)->value, token_desc(((t)->type))
 
 char *token_desc(Token_Type token_type) {
     return TOKEN_DESCRIPTION[token_type];
-}
-
-char *token_value(Json_Token *token) {
-    if (token->type == TOKEN_NUMBER) {
-        char *out = malloc(sizeof(char)*256);
-        snprintf(out, 256, "%f", token->as.number);
-        return out;
-    } else if (token->type == TOKEN_BOOLEAN) {
-        if (token->as.boolean) return "true";
-        else return "false";
-    } else {
-        return token->as.str;
-    }
 }
 
 typedef
@@ -136,74 +109,47 @@ int next_token(Json_Tokenizer *tokenizer) {
     unsigned int i = 0;
     if (c == '"') {
         while (c != EOJ && (c = next_char(tokenizer)) != '"') {
-            tokenizer->token->as.str[i++] = c;
+            tokenizer->token->value[i++] = c;
         }
 
-        tokenizer->token->as.str[i] = '\0';
+        tokenizer->token->value[i] = '\0';
         tokenizer->token->type = TOKEN_STRING;
         return 0; /* token is string, nothing to do anymore */
     }
 
     /* is number */
-    if (c == '-' || isdigit(c)) {
-        double number = 0.0;
-        int temp_n = 0;
-
-        int sign = 1;
-        if (c == '-') {
-            sign = -1;
-            c = next_char(tokenizer);
-        }
-        if (c == EOJ) {
-            panic("Expected a number, find end of input");
-        }
-
-        /* collecting the base */
-        while (c != EOJ && isdigit(c)) {
-            temp_n *= 10;
-            temp_n += (c - '0');
+    if (c == '-' || c == '+' || isdigit(c)) {
+        tokenizer->token->value[i++] = c;
+        c = next_char(tokenizer);
+        while(c != EOJ && isdigit(c)) {
+            tokenizer->token->value[i++] = c;
             c = next_char(tokenizer);
         }
 
-        /* collecting the mantissa */
-        int mantissa = 1;
         if (c == '.') {
+            tokenizer->token->value[i++] = c;
             c = next_char(tokenizer);
             while(c != EOJ && isdigit(c)) {
-                temp_n *= 10;
-                temp_n += (c - '0');
+                tokenizer->token->value[i++] = c;
                 c = next_char(tokenizer);
-                mantissa *= 10;
             }
         }
 
-        /* saving result */
-        number = (double) (sign*temp_n)/mantissa;
-
-        /* collecting expoent */
-        int expoent = 0;
         if (c == 'e') {
-            int exp_sign = 1;
+            tokenizer->token->value[i++] = c;
             c = next_char(tokenizer);
             if (c == '-' || c == '+') {
-                exp_sign *= (c == '-') ? -1 : 1;
+                tokenizer->token->value[i++] = c;
                 c = next_char(tokenizer);
             }
 
             while(c != EOJ && isdigit(c)) {
-                expoent *= 10;
-                expoent += (c - '0');
+                tokenizer->token->value[i++] = c;
                 c = next_char(tokenizer);
             }
-
-            expoent *= exp_sign;
         }
 
-        if (expoent) {
-            number *= powerd(10.0, expoent);
-        }
-
-        tokenizer->token->as.number = number;
+        tokenizer->token->value[i] = '\0';
         tokenizer->token->type = TOKEN_NUMBER;
         tokenizer->cursor--;
         return 0;
@@ -211,7 +157,6 @@ int next_token(Json_Tokenizer *tokenizer) {
 
     /* boolean */
     if (c == 'f') {
-
         if (next_char(tokenizer) != 'a' ||
             next_char(tokenizer) != 'l' ||
             next_char(tokenizer) != 's' ||
@@ -220,7 +165,8 @@ int next_token(Json_Tokenizer *tokenizer) {
             panic("Unexpected character %s", c);
         }
 
-        tokenizer->token->as.boolean = FALSE;
+        *tokenizer->token->value = '\0';
+        strncat(tokenizer->token->value, "false", 6);
         tokenizer->token->type = TOKEN_BOOLEAN;
         return 0;
     }
@@ -233,7 +179,8 @@ int next_token(Json_Tokenizer *tokenizer) {
             panic("Unexpected character %s", c);
         }
 
-        tokenizer->token->as.boolean = TRUE;
+        *tokenizer->token->value = '\0';
+        strncat(tokenizer->token->value, "true", 5);
         tokenizer->token->type = TOKEN_BOOLEAN;
         return 0;
     }
@@ -246,7 +193,7 @@ int next_token(Json_Tokenizer *tokenizer) {
             panic("Unexpected character %s", c);
         }
 
-        tokenizer->token->as.null = NULL;
+        *tokenizer->token->value = '\0';
         tokenizer->token->type = TOKEN_NULL;
         return 0;
     }
@@ -265,8 +212,8 @@ int next_token(Json_Tokenizer *tokenizer) {
         }
     }
 
-    tokenizer->token->as.str[i++] = c;
-    tokenizer->token->as.str[i] = '\0';
+    tokenizer->token->value[i++] = c;
+    tokenizer->token->value[i] = '\0';
 
     return 0;
 }
@@ -274,6 +221,12 @@ int next_token(Json_Tokenizer *tokenizer) {
 #define THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(t) if (next_token(t) == -1) panic("unexpected end of input");
 
 //// parser
+typedef char Boolean;
+#define FALSE 0
+#define TRUE  1
+
+typedef void* Null;
+
 typedef
 enum {
     JSON_ARRAY       ,
@@ -471,6 +424,8 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
 }
 
 void parse_object(Object *object, Json_Tokenizer *tokenizer) {
+    double mstrtod(char *value);
+
     int cnt = 0;
     do {
         THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
@@ -479,12 +434,12 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
             panic("Expected TOKEN_STRING find %s", token_desc(tokenizer->token->type));
         }
 
-        memmove(buffer, tokenizer->token->as.str, MAX_STR_LEN);
+        memmove(buffer, tokenizer->token->value, MAX_STR_LEN);
 
         THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
 
         if (tokenizer->token->type != TOKEN_COLON) {
-            panic("Expected `:` find %s", tokenizer->token->as.str);
+            panic("Expected `:` find %s", tokenizer->token->value);
         }
 
         THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
@@ -493,7 +448,7 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
             case TOKEN_STRING: {
                 Json_Value value = {0};
                 Json_String str = {0};
-                parse_string(&str, tokenizer->token->as.str);
+                parse_string(&str, tokenizer->token->value);
                 value.string.content = str.content;
                 value.string.len = str.len;
                 hm_put(object, buffer, value, JSON_STRING);
@@ -518,13 +473,19 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
 
             case TOKEN_NUMBER: {
                 Json_Value value = {0};
-                value.number = tokenizer->token->as.number;
+                log_debug(FMT_TOKEN, ARG_TOKEN(tokenizer->token));
+                value.number = mstrtod(tokenizer->token->value);
                 hm_put(object, buffer, value, JSON_NUMBER);
             } break;
 
             case TOKEN_BOOLEAN: {
                 Json_Value value = {0};
-                value.boolean = tokenizer->token->as.boolean;
+                if (tokenizer->token->value[0] == 't') {
+                    value.boolean = TRUE;
+                } else {
+                    value.boolean = FALSE;
+                }
+
                 hm_put(object, buffer, value, JSON_BOOLEAN);
             } break;
 
@@ -627,9 +588,13 @@ void panic(const char *fmt, ...) {
 /////////////
 Json json = {0};
 int main(void) {
-    char *j = "{\"null\": null}";
-    log_init(NULL);
+    Log_Config config = {
+        .debug = false,
+    };
 
+    log_init(&config);
+
+    char *j = "{\"NULL\": null}";
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));
     tokenizer->json_str = j;
@@ -638,7 +603,6 @@ int main(void) {
     parse_json(&json, tokenizer);
 
     Object *obj = json.as.object;
-    unsigned int i = json_geti(obj, "null");
 
     return 0;
 }
@@ -663,4 +627,68 @@ double powerd(double x, int y)
         else
             return (temp * temp) / x;
     }
+}
+
+
+/*
+Parses a json number string to a C double value
+*/
+double mstrtod(char *value) {
+    double number = 0.0;
+    int temp_n = 0;
+    int sign = 1;
+    char c = *(value++);
+
+    if (c == '-' || c == '+') {
+        sign *= (c == '-') ? -1 : 1;
+        c = *(value++);
+    }
+
+    if (c == '\0') {
+        panic("Expected a number, find end of input");
+    }
+
+    /* collecting base */
+    while (c != '\0' && isdigit(c)) {
+        temp_n *= 10;
+        temp_n += (c - '0');
+        c = *(value++);
+    }
+
+
+    /* collecting mantissa */
+    int mantissa = 1;
+    if (c == '.') {
+        c = *(value++);
+        while(c != '\0' && isdigit(c)) {
+            temp_n *= 10;
+            temp_n += (c - '0');
+            c = *(value++);
+            mantissa *= 10;
+        }
+    }
+
+    /* saving result */
+    number = (double) (sign*temp_n)/mantissa;
+
+    /* collecting expoent */
+    int expoent = 0;
+    int exp_sign = 1;
+    if (c == 'e') {
+        c = *(value++);
+        if (c == '-' || c == '+') {
+            exp_sign *= (c == '-') ? -1 : 1;
+            c = *(value++);
+        }
+
+        while(c != '\0' && isdigit(c)) {
+            expoent *= 10;
+            expoent += (c - '0');
+            c = *(value++);
+        }
+
+        expoent *= exp_sign;
+    }
+
+    return number *= powerd(10.0, expoent);;
 }
