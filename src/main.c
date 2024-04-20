@@ -44,6 +44,7 @@ enum {
     TOKEN_COMMA   ,
     TOKEN_NUMBER  ,
     TOKEN_BOOLEAN ,
+    TOKEN_NULL    ,
     _TOTAL_TOKENS ,
 } Token_Type;
 
@@ -57,6 +58,7 @@ char* TOKEN_DESCRIPTION[] = {
     [TOKEN_COMMA]     = "TOKEN_COMMA"   ,
     [TOKEN_NUMBER]    = "TOKEN_NUMBER"  ,
     [TOKEN_BOOLEAN]   = "TOKEN_BOOLEAN" ,
+    [TOKEN_NULL]      = "TOKEN_NULL"    ,
 };
 
 _Static_assert(
@@ -71,11 +73,14 @@ typedef char Boolean;
 #define FALSE 0
 #define TRUE  1
 
+typedef void* Null;
+
 typedef
 union {
     char str[MAX_STR_LEN];
     double number;
     Boolean boolean;
+    Null null;
 } Token_Value;
 
 typedef
@@ -233,6 +238,19 @@ int next_token(Json_Tokenizer *tokenizer) {
         return 0;
     }
 
+    if (c == 'n') {
+        if (next_char(tokenizer) != 'u' ||
+            next_char(tokenizer) != 'l' ||
+            next_char(tokenizer) != 'l')
+        {
+            panic("Unexpected character %s", c);
+        }
+
+        tokenizer->token->as.null = NULL;
+        tokenizer->token->type = TOKEN_NULL;
+        return 0;
+    }
+
     /* rest of the 1 char tokens are readed in the string buffer */
     switch (c) {
         case '{': tokenizer->token->type = TOKEN_OPCBRAKT; break;
@@ -263,6 +281,7 @@ enum {
     JSON_STRING      ,
     JSON_NUMBER      ,
     JSON_BOOLEAN     ,
+    JSON_NULL        ,
     _TOTAL_JSON_TYPES,
 } Json_Type;
 
@@ -272,6 +291,7 @@ char* JSON_TYPE_DESCRIPTION[] = {
     [JSON_STRING]  = "JSON_STRING" ,
     [JSON_NUMBER]  = "JSON_NUMBER" ,
     [JSON_BOOLEAN] = "JSON_BOOLEAN",
+    [JSON_NULL]    = "JSON_NULL"   ,
 };
 
 _Static_assert(
@@ -297,6 +317,7 @@ union {
     Json_String string;
     double number;
     Boolean boolean;
+    Null null;
 } Json_Value;
 
 typedef
@@ -395,6 +416,16 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
             object->entries[*i].value_as.number = value.number;
         } break;
 
+        case JSON_BOOLEAN: {
+            object->entries[*i].type = JSON_BOOLEAN;
+            object->entries[*i].value_as.boolean = value.boolean;
+        } break;
+
+        case JSON_NULL: {
+            object->entries[*i].type = JSON_NULL;
+            object->entries[*i].value_as.null = NULL;
+        } break;
+
         case JSON_OBJECT: {
             object->entries[*i].type = JSON_OBJECT;
             Object *old_object = object->entries[*i].value_as.object;
@@ -404,11 +435,6 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
             } else {
                 object->entries[*i].value_as.object = value.object;
             }
-        } break;
-
-        case JSON_BOOLEAN: {
-            object->entries[*i].type = JSON_BOOLEAN;
-            object->entries[*i].value_as.boolean = value.boolean;
         } break;
 
         default: {
@@ -482,6 +508,12 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
                 hm_put(object, buffer, value, JSON_OBJECT);
 
                 parse_object(value.object, tokenizer);
+            } break;
+
+            case TOKEN_NULL: {
+                Json_Value value = {0};
+                value.null = NULL;
+                hm_put(object, buffer, value, JSON_NULL);
             } break;
 
             case TOKEN_NUMBER: {
@@ -595,7 +627,7 @@ void panic(const char *fmt, ...) {
 /////////////
 Json json = {0};
 int main(void) {
-    char *j = "{\"false\": false, \"true\": true}";
+    char *j = "{\"null\": null}";
     log_init(NULL);
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
@@ -606,15 +638,7 @@ int main(void) {
     parse_json(&json, tokenizer);
 
     Object *obj = json.as.object;
-    unsigned int i = json_geti(obj, "false");
-    if (!obj->entries[i].value_as.boolean) {
-        printf("false is false\n");
-    }
-
-    i = json_geti(obj, "true");
-    if (obj->entries[i].value_as.boolean) {
-        printf("true is true\n");
-    }
+    unsigned int i = json_geti(obj, "null");
 
     return 0;
 }
