@@ -221,10 +221,6 @@ int next_token(Json_Tokenizer *tokenizer) {
 #define THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(t) if (next_token(t) == -1) panic("unexpected end of input");
 
 //// parser
-typedef char Boolean;
-#define FALSE 0
-#define TRUE  1
-
 typedef void* Null;
 
 typedef
@@ -269,7 +265,7 @@ union {
     Object *object;
     Json_String string;
     double number;
-    Boolean boolean;
+    bool boolean;
     Null null;
 } Json_Value;
 
@@ -481,9 +477,9 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
             case TOKEN_BOOLEAN: {
                 Json_Value value = {0};
                 if (tokenizer->token->value[0] == 't') {
-                    value.boolean = TRUE;
+                    value.boolean = true;
                 } else {
-                    value.boolean = FALSE;
+                    value.boolean = false;
                 }
 
                 hm_put(object, buffer, value, JSON_BOOLEAN);
