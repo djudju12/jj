@@ -258,11 +258,11 @@ struct {
     unsigned int len;
 } Json_String;
 
-typedef struct Object Object;
+typedef struct Json_Object Json_Object;
 
 typedef
 union {
-    Object *object;
+    Json_Object *object;
     Json_String string;
     double number;
     bool boolean;
@@ -279,7 +279,7 @@ struct {
 #define MAX_OBJECT_ENTRIES 256
 #define HASHMAP_INDEX(h) (h & (MAX_OBJECT_ENTRIES - 1))
 
-struct Object {
+struct Json_Object {
     Key_Value entries[MAX_OBJECT_ENTRIES];
     unsigned int table[MAX_OBJECT_ENTRIES];
     unsigned int len;
@@ -288,7 +288,7 @@ struct Object {
 typedef
 struct {
     union {
-        Object *object;
+        Json_Object *object;
         /* TODO: add array type */
     } as;
     Json_Type type;
@@ -311,7 +311,7 @@ long int hash_string(const char *str, int *op_len) {
 }
 
 //trying to use a hash map //////
-void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
+void hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type type) {
     int len = 0;
     long int h = hash_string(key, &len);
 
@@ -377,7 +377,7 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
 
         case JSON_OBJECT: {
             object->entries[*i].type = JSON_OBJECT;
-            Object *old_object = object->entries[*i].value_as.object;
+            Json_Object *old_object = object->entries[*i].value_as.object;
             if (old_object != NULL) {
                 object->entries[*i].value_as.object = value.object;
                 free(old_object);
@@ -392,7 +392,7 @@ void hm_put(Object *object, const char *key, Json_Value value, Json_Type type) {
     }
 }
 
-unsigned int json_geti(Object *object, const char *key) {
+unsigned int json_geti(Json_Object *object, const char *key) {
     int len = 0;
     long int h = hash_string(key, &len);
 
@@ -417,7 +417,7 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
     str->len = len;
 }
 
-void parse_object(Object *object, Json_Tokenizer *tokenizer) {
+void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
     double mstrtod(char *value);
 
     char buffer[MAX_STR_LEN];
@@ -452,7 +452,7 @@ void parse_object(Object *object, Json_Tokenizer *tokenizer) {
 
             case TOKEN_OPCBRAKT: {
                 Json_Value value = {0};
-                value.object = malloc(sizeof(Object));;
+                value.object = malloc(sizeof(Json_Object));;
 
                 // its important to do the put before parsing the pointer
                 // so other nested objects can use the buffer
@@ -514,7 +514,7 @@ void parse_json(Json *root, Json_Tokenizer *tokenizer) {
     switch (tokenizer->token->type) {
         case TOKEN_OPCBRAKT: {
             root->type = JSON_OBJECT;
-            root->as.object = malloc(sizeof(Object));
+            root->as.object = malloc(sizeof(Json_Object));
             parse_object(root->as.object, tokenizer);
         } break;
 
@@ -598,7 +598,7 @@ int main(void) {
 
     parse_json(&json, tokenizer);
 
-    Object *obj = json.as.object;
+    Json_Object *obj = json.as.object;
     unsigned int i = json_geti(obj, "string");
     printf("%s: %s\n", obj->entries[i].key, obj->entries[i].value_as.string.content);
 
