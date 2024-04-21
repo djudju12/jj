@@ -101,7 +101,6 @@ int next_token(Json_Tokenizer *tokenizer) {
     char next_char (Json_Tokenizer *tokenizer);
     char c = next_char(tokenizer);
 
-
     while (c != EOJ && isspace(c)) c = next_char(tokenizer);
     if (c == EOJ) return -1;
 
@@ -115,10 +114,8 @@ int next_token(Json_Tokenizer *tokenizer) {
         tokenizer->token->value[i] = '\0';
         tokenizer->token->type = TOKEN_STRING;
         return 0; /* token is string, nothing to do anymore */
-    }
-
-    /* is number */
-    if (c == '-' || c == '+' || isdigit(c)) {
+    } else if (c == '-' || c == '+' || isdigit(c)) {
+        /* is number */
         tokenizer->token->value[i++] = c;
         c = next_char(tokenizer);
         while(c != EOJ && isdigit(c)) {
@@ -152,11 +149,8 @@ int next_token(Json_Tokenizer *tokenizer) {
         tokenizer->token->value[i] = '\0';
         tokenizer->token->type = TOKEN_NUMBER;
         tokenizer->cursor--;
-        return 0;
-    }
-
-    /* boolean */
-    if (c == 'f') {
+    } else if (c == 'f') {
+        /* boolean */
         if (next_char(tokenizer) != 'a' ||
             next_char(tokenizer) != 'l' ||
             next_char(tokenizer) != 's' ||
@@ -168,10 +162,7 @@ int next_token(Json_Tokenizer *tokenizer) {
         *tokenizer->token->value = '\0';
         strncat(tokenizer->token->value, "false", 6);
         tokenizer->token->type = TOKEN_BOOLEAN;
-        return 0;
-    }
-
-    if (c == 't') {
+    } else if (c == 't') {
         if (next_char(tokenizer) != 'r' ||
             next_char(tokenizer) != 'u' ||
             next_char(tokenizer) != 'e')
@@ -182,10 +173,7 @@ int next_token(Json_Tokenizer *tokenizer) {
         *tokenizer->token->value = '\0';
         strncat(tokenizer->token->value, "true", 5);
         tokenizer->token->type = TOKEN_BOOLEAN;
-        return 0;
-    }
-
-    if (c == 'n') {
+    } else if (c == 'n') {
         if (next_char(tokenizer) != 'u' ||
             next_char(tokenizer) != 'l' ||
             next_char(tokenizer) != 'l')
@@ -195,26 +183,26 @@ int next_token(Json_Tokenizer *tokenizer) {
 
         *tokenizer->token->value = '\0';
         tokenizer->token->type = TOKEN_NULL;
-        return 0;
-    }
-
-    /* rest of the 1 char tokens are readed in the string buffer */
-    switch (c) {
-        case '{': tokenizer->token->type = TOKEN_OPCBRAKT; break;
-        case '}': tokenizer->token->type = TOKEN_CLCBRAKT; break;
-        case '[': tokenizer->token->type = TOKEN_OPBRAKT;  break;
-        case ']': tokenizer->token->type = TOKEN_CLBRAKT;  break;
-        case ':': tokenizer->token->type = TOKEN_COLON;    break;
-        case ',': tokenizer->token->type = TOKEN_COMMA;    break;
-        default: {
-            fprintf(stderr, "Invalid token => %c\n", c);
-            exit(1);
+    } else {
+        /* rest of the 1 char tokens are readed in the string buffer */
+        switch (c) {
+            case '{': tokenizer->token->type = TOKEN_OPCBRAKT; break;
+            case '}': tokenizer->token->type = TOKEN_CLCBRAKT; break;
+            case '[': tokenizer->token->type = TOKEN_OPBRAKT;  break;
+            case ']': tokenizer->token->type = TOKEN_CLBRAKT;  break;
+            case ':': tokenizer->token->type = TOKEN_COLON;    break;
+            case ',': tokenizer->token->type = TOKEN_COMMA;    break;
+            default: {
+                panic("Invalid token `%c`", c);
+            }
         }
+
+        tokenizer->token->value[i++] = c;
+        tokenizer->token->value[i] = '\0';
     }
 
-    tokenizer->token->value[i++] = c;
-    tokenizer->token->value[i] = '\0';
 
+    log_debug(FMT_TOKEN, ARG_TOKEN(tokenizer->token));
     return 0;
 }
 
@@ -603,7 +591,7 @@ void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
     } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
 
     if (tokenizer->token->type != TOKEN_CLCBRAKT) {
-        panic("expected `}`, find %s", tokenizer->token->value);
+        panic("expected `}` or `,`, find %s in byte %d", tokenizer->token->value, tokenizer->cursor);
     }
 }
 
@@ -665,7 +653,7 @@ void parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
     } while (tokenizer->token->type == TOKEN_COMMA);
 
     if (tokenizer->token->type != TOKEN_CLBRAKT) {
-        panic("expected `]`, find %s", tokenizer->token->value);
+        panic("expected `]` or `,`, find `%s` on byte %d", tokenizer->token->value, tokenizer->cursor);
     }
 }
 
@@ -751,23 +739,19 @@ void panic(const char *fmt, ...) {
 Json json = {0};
 int main(void) {
     Log_Config config = {
-        .debug = false,
+        .debug = true,
     };
 
     log_init(&config);
 
-    char *j = "[{\"teste\": \"teste1\"}]";
+    log_debug("json = %s", j);
+
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));
     tokenizer->json_str = j;
     tokenizer->cursor = 0;
 
     parse_json(&json, tokenizer);
-
-    Json_Array *array = json.as.array;
-    Json_Object *obj = array->items[0].item_as.object;
-    unsigned int i = json_geti(obj, "teste");
-    printf("%s\n", obj->entries[i].value_as.string.content);
 
     return 0;
 }
