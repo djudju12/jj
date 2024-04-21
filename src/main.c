@@ -259,10 +259,12 @@ struct {
 } Json_String;
 
 typedef struct Json_Object Json_Object;
+typedef struct Json_Array Json_Array;
 
 typedef
 union {
     Json_Object *object;
+    Json_Array *array;
     Json_String string;
     double number;
     bool boolean;
@@ -276,6 +278,12 @@ struct {
     Json_Type type;
 } Key_Value;
 
+typedef
+struct {
+    Json_Value item_as;
+    Json_Type type;
+} Item;
+
 #define MAX_OBJECT_ENTRIES 256
 #define HASHMAP_INDEX(h) (h & (MAX_OBJECT_ENTRIES - 1))
 
@@ -285,11 +293,17 @@ struct Json_Object {
     unsigned int len;
 };
 
+struct Json_Array {
+    Item *items;
+    unsigned int capacity;
+    unsigned int len;
+};
+
 typedef
 struct {
     union {
         Json_Object *object;
-        /* TODO: add array type */
+        Json_Array *array; /* TODO: add array type */
     } as;
     Json_Type type;
 } Json;
@@ -386,6 +400,17 @@ void hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type ty
             }
         } break;
 
+        case JSON_ARRAY: {
+            object->entries[*i].type = JSON_ARRAY;
+            Json_Array *old_array = object->entries[*i].value_as.array;
+            if (old_array != NULL) {
+                object->entries[*i].value_as.array = value.array;
+                free(old_array);
+            } else {
+                object->entries[*i].value_as.array = value.array;
+            }
+        } break;
+
         default: {
             panic("Invalid Json Type %s", JSON_TYPE_DESCRIPTION[type]);
         }
@@ -405,7 +430,83 @@ unsigned int json_geti(Json_Object *object, const char *key) {
     return *i;
 }
 
+void json_append(Json_Array *array, Json_Value value, Json_Type type) {
+    const int growth_factor = 2;
+    if (array == NULL) {
+        panic("array is a null pointer. TODO: simplify memory management");
+    }
+
+    if (array->len >= array->capacity) {
+        unsigned int new_capacity = array->capacity*growth_factor;
+        array->items = realloc(array->items, new_capacity);
+        if (array->items == NULL) {
+            panic("could not reallocate memory for the array."
+                  "Array current size is %d, failed realoc for size %d",
+                  array->capacity, new_capacity);
+        }
+
+        array->capacity = new_capacity;
+    }
+
+    unsigned int i = array->len++;
+    switch(type) {
+        case JSON_STRING: {
+            array->items[i].type = JSON_STRING;
+            Json_String *json_str = &array->items[i].item_as.string;
+            assert(json_str->content == NULL);
+
+            unsigned int str_len = value.string.len;
+            json_str->content = malloc(sizeof(char) * str_len);
+            if (json_str->content == NULL) {
+                panic("Out of memory");
+            }
+
+            json_str->len = str_len;
+            if (str_len) {
+                *json_str->content = '\0';
+                strncat(json_str->content, value.string.content, str_len);
+            }
+        } break;
+
+        case JSON_NUMBER: {
+            array->items[i].type = JSON_NUMBER;
+            array->items[i].item_as.number = value.number;
+        } break;
+
+        case JSON_BOOLEAN: {
+            array->items[i].type = JSON_BOOLEAN;
+            array->items[i].item_as.boolean = value.boolean;
+        } break;
+
+        case JSON_NULL: {
+            array->items[i].type = JSON_NULL;
+            array->items[i].item_as.null = NULL;
+        } break;
+
+        case JSON_OBJECT: {
+            array->items[i].type = JSON_OBJECT;
+            array->items[i].item_as.object = value.object;
+        } break;
+
+        case JSON_ARRAY: {
+            panic("TODO: json array inside json arrays is not implemented");
+        } break;
+
+        default: {
+            panic("Invalid Json Type %s", JSON_TYPE_DESCRIPTION[type]);
+        }
+    }
+}
+
 /////////////////////////////////
+Json_Array *alloc_array(void) {
+    Json_Array *array = malloc(sizeof(Json_Array));
+    array->items = malloc(sizeof(Json_Value) * 16);
+    array->capacity = 16;
+    array->len = 0;
+    return array;
+}
+
 void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
     if (str == NULL) {
         panic("Caller must provide a valid pointer to Json_String");
@@ -419,6 +520,7 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
 
 void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
     double mstrtod(char *value);
+    void parse_array(Json_Array *array, Json_Tokenizer *tokenizer);
 
     char buffer[MAX_STR_LEN];
 
@@ -450,17 +552,6 @@ void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
                 hm_put(object, buffer, value, JSON_STRING);
             } break;
 
-            case TOKEN_OPCBRAKT: {
-                Json_Value value = {0};
-                value.object = malloc(sizeof(Json_Object));;
-
-                // its important to do the put before parsing the pointer
-                // so other nested objects can use the buffer
-                hm_put(object, buffer, value, JSON_OBJECT);
-
-                parse_object(value.object, tokenizer);
-            } break;
-
             case TOKEN_NULL: {
                 Json_Value value = {0};
                 value.null = NULL;
@@ -485,8 +576,20 @@ void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
                 hm_put(object, buffer, value, JSON_BOOLEAN);
             } break;
 
+            case TOKEN_OPCBRAKT: {
+                Json_Value value = {0};
+                value.object = malloc(sizeof(Json_Object));;
+
+                hm_put(object, buffer, value, JSON_OBJECT);
+
+                parse_object(value.object, tokenizer);
+            } break;
+
             case TOKEN_OPBRAKT: {
-                panic("TODO: array not implemented");
+                Json_Value value = {0};
+                value.array = alloc_array();
+                parse_array(value.array, tokenizer);
+                hm_put(object, buffer, value, JSON_ARRAY);
                 break;
             }
 
@@ -500,7 +603,69 @@ void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
     } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
 
     if (tokenizer->token->type != TOKEN_CLCBRAKT) {
-        log_warning("data after end of json ignored");
+        panic("expected `}`, find %s", tokenizer->token->value);
+    }
+}
+
+void parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
+    double mstrtod(char *value);
+
+    do {
+        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+
+        Json_Value value = {0};
+        switch(tokenizer->token->type) {
+            case TOKEN_STRING: {
+                Json_String str = {0};
+                parse_string(&str, tokenizer->token->value);
+                value.string.content = str.content;
+                value.string.len = str.len;
+                json_append(array, value, JSON_STRING);
+            } break;
+
+            case TOKEN_NULL: {
+                value.null = NULL;
+                json_append(array, value, JSON_NULL);
+            } break;
+
+            case TOKEN_NUMBER: {
+                value.number = mstrtod(tokenizer->token->value);
+                json_append(array, value, JSON_NUMBER);
+            } break;
+
+            case TOKEN_BOOLEAN: {
+                if (tokenizer->token->value[0] == 't') {
+                    value.boolean = true;
+                } else {
+                    value.boolean = false;
+                }
+
+                json_append(array, value, JSON_BOOLEAN);
+            } break;
+
+            case TOKEN_OPCBRAKT: {
+                Json_Value value = {0};
+                value.object = malloc(sizeof(Json_Object));;
+                parse_object(value.object, tokenizer);
+                json_append(array, value, JSON_OBJECT);
+            } break;
+
+            case TOKEN_OPBRAKT: {
+                panic("TODO: array not implemented");
+                break;
+            }
+
+            default: {
+                panic("Not a valid token "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
+            }
+        }
+
+        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+
+    } while (tokenizer->token->type == TOKEN_COMMA);
+
+    if (tokenizer->token->type != TOKEN_CLBRAKT) {
+        panic("expected `]`, find %s", tokenizer->token->value);
     }
 }
 
@@ -519,9 +684,10 @@ void parse_json(Json *root, Json_Tokenizer *tokenizer) {
         } break;
 
         case TOKEN_OPBRAKT: {
-            panic("TODO: array not implemented");
-            break;
-        }
+            root->type = JSON_ARRAY;
+            root->as.array = alloc_array();
+            parse_array(root->as.array, tokenizer);
+        } break;
 
         default: {
             panic("Expected `[` or `{` finded "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
@@ -590,7 +756,7 @@ int main(void) {
 
     log_init(&config);
 
-    char *j = "{\"string\": \"teste\"}";
+    char *j = "[{\"teste\": \"teste1\"}]";
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
     tokenizer->token = malloc(sizeof(Json_Token));
     tokenizer->json_str = j;
@@ -598,9 +764,10 @@ int main(void) {
 
     parse_json(&json, tokenizer);
 
-    Json_Object *obj = json.as.object;
-    unsigned int i = json_geti(obj, "string");
-    printf("%s: %s\n", obj->entries[i].key, obj->entries[i].value_as.string.content);
+    Json_Array *array = json.as.array;
+    Json_Object *obj = array->items[0].item_as.object;
+    unsigned int i = json_geti(obj, "teste");
+    printf("%s\n", obj->entries[i].value_as.string.content);
 
     return 0;
 }
