@@ -33,6 +33,36 @@ void panic(const char *fmt, ...);           // exits with exit code 1 after prin
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
+// errors definitions
+typedef enum {
+    JSON_NO_ERROR = 0           ,
+    ERR_UNCLOSED_STRING         ,
+    ERR_UNEXPECTED_CHAR         ,
+    ERR_MALFORMED_JSON          ,
+    ERR_NOT_ENOUGH_MEMORY       ,
+    ERR_EXPECTED_OBJECT_OR_ARRAY,
+    _TOTAL_ERRORS               ,
+} JSON_ERROR;
+
+char *JSON_ERROR_DESC[] = {
+    [JSON_NO_ERROR]                = "no error"                          ,
+    [ERR_UNCLOSED_STRING]          = "unclosed string"                   ,
+    [ERR_UNEXPECTED_CHAR]          = "unexpected character"              ,
+    [ERR_MALFORMED_JSON]           = "malformed json"                    ,
+    [ERR_NOT_ENOUGH_MEMORY]        = "not enough memory to do allocation",
+    [ERR_EXPECTED_OBJECT_OR_ARRAY] = "expected `{` or `[`"               ,
+};
+
+_Static_assert(
+    ARRAY_SIZE(JSON_ERROR_DESC) == _TOTAL_ERRORS,
+    "assert that you have implemented the description of all the `JSON_ERROR`'s"
+);
+
+char *json_error_desc(JSON_ERROR error) {
+    return JSON_ERROR_DESC[error];
+}
+
+//
 typedef
 enum {
     TOKEN_BOOLEAN ,
@@ -116,6 +146,10 @@ int next_token(Json_Tokenizer *tokenizer) {
                 tokenizer->token->value[i++] = c;
             }
 
+            if (c == EOJ) {
+                return ERR_UNCLOSED_STRING;
+            }
+
             tokenizer->token->type = TOKEN_STRING;
         } break;
 
@@ -168,7 +202,7 @@ int next_token(Json_Tokenizer *tokenizer) {
                 next_char(tokenizer) != 's' ||
                 next_char(tokenizer) != 'e')
             {
-                panic("Unexpected character %s", c);
+                return ERR_UNEXPECTED_CHAR;
             }
 
             *tokenizer->token->value = '\0';
@@ -184,7 +218,7 @@ int next_token(Json_Tokenizer *tokenizer) {
                 next_char(tokenizer) != 'u' ||
                 next_char(tokenizer) != 'e')
             {
-                panic("Unexpected character %s", c);
+                return ERR_UNEXPECTED_CHAR;
             }
 
             *tokenizer->token->value = '\0';
@@ -200,7 +234,7 @@ int next_token(Json_Tokenizer *tokenizer) {
                 next_char(tokenizer) != 'l' ||
                 next_char(tokenizer) != 'l')
             {
-                panic("Unexpected character %s", c);
+                return ERR_UNEXPECTED_CHAR;
             }
 
             tokenizer->token->type = TOKEN_NULL;
@@ -237,7 +271,7 @@ int next_token(Json_Tokenizer *tokenizer) {
         } break;
 
         default: {
-            panic("Invalid token `%c`", c);
+            return ERR_UNEXPECTED_CHAR;
         }
     }
 
@@ -246,14 +280,12 @@ int next_token(Json_Tokenizer *tokenizer) {
     return 0;
 }
 
-#define THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(t) if (next_token(t) == -1) panic("unexpected end of input");
-
 //// parser
 typedef void* Null;
 
 typedef
 enum {
-    JSON_ARRAY       ,
+    JSON_ARRAY = 0   ,
     JSON_BOOLEAN     ,
     JSON_NULL        ,
     JSON_NUMBER      ,
@@ -262,7 +294,7 @@ enum {
     _TOTAL_JSON_TYPES,
 } Json_Type;
 
-char* JSON_TYPE_DESCRIPTION[] = {
+char *JSON_TYPE_DESCRIPTION[] = {
     [JSON_ARRAY]   = "JSON_ARRAY"  ,
     [JSON_BOOLEAN] = "JSON_BOOLEAN",
     [JSON_NULL]    = "JSON_NULL"   ,
@@ -353,7 +385,7 @@ long int hash_string(const char *str, int *op_len) {
 }
 
 //trying to use a hash map //////
-void hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type type) {
+JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type type) {
     int len = 0;
     long int h = hash_string(key, &len);
 
@@ -381,16 +413,14 @@ void hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type ty
             if (json_str->content == NULL) {
                 json_str->content = malloc(sizeof(char) * str_len);
                 if (json_str->content == NULL) {
-                    panic("Out of memory");
+                    return ERR_NOT_ENOUGH_MEMORY;
                 }
 
                 json_str->len = str_len;
-                if (str_len) {
-                    *json_str->content = '\0';
-                    strncat(json_str->content, value.string.content, str_len);
-                }
+                *json_str->content = '\0';
+                strncat(json_str->content, value.string.content, str_len);
 
-                return; /* new entry added */
+                return JSON_NO_ERROR; /* new entry added */
             }
 
             if (str_len > json_str->len) {
@@ -443,6 +473,8 @@ void hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type ty
             panic("Invalid Json Type %s", JSON_TYPE_DESCRIPTION[type]);
         }
     }
+
+    return 0;
 }
 
 int json_geti(Json_Object *object, const char *key) {
@@ -460,7 +492,7 @@ int json_geti(Json_Object *object, const char *key) {
     return *i;
 }
 
-void json_append(Json_Array *array, Json_Value value, Json_Type type) {
+JSON_ERROR json_append(Json_Array *array, Json_Value value, Json_Type type) {
     const int growth_factor = 2;
     if (array == NULL) {
         panic("array is a null pointer. TODO: simplify memory management");
@@ -470,9 +502,7 @@ void json_append(Json_Array *array, Json_Value value, Json_Type type) {
         unsigned int new_capacity = array->capacity*growth_factor;
         array->items = realloc(array->items, new_capacity);
         if (array->items == NULL) {
-            panic("could not reallocate memory for the array."
-                  "Array current size is %d, failed realoc for size %d",
-                  array->capacity, new_capacity);
+            return ERR_NOT_ENOUGH_MEMORY;
         }
 
         array->capacity = new_capacity;
@@ -488,14 +518,12 @@ void json_append(Json_Array *array, Json_Value value, Json_Type type) {
             unsigned int str_len = value.string.len;
             json_str->content = malloc(sizeof(char) * str_len);
             if (json_str->content == NULL) {
-                panic("Out of memory");
+                return ERR_NOT_ENOUGH_MEMORY;
             }
 
             json_str->len = str_len;
-            if (str_len) {
-                *json_str->content = '\0';
-                strncat(json_str->content, value.string.content, str_len);
-            }
+            *json_str->content = '\0';
+            strncat(json_str->content, value.string.content, str_len);
         } break;
 
         case JSON_NUMBER: {
@@ -526,12 +554,25 @@ void json_append(Json_Array *array, Json_Value value, Json_Type type) {
             panic("Invalid Json Type %s", JSON_TYPE_DESCRIPTION[type]);
         }
     }
+
+    return 0;
 }
 
 /////////////////////////////////
-Json_Array *alloc_array(void) {
+Json_Array *alloc_array(JSON_ERROR *err) {
     Json_Array *array = malloc(sizeof(Json_Array));
+    if (array == NULL) {
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        return NULL;
+    }
+
     array->items = malloc(sizeof(Json_Value) * 16);
+    if (array->items == NULL) {
+        free(array);
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        return NULL;
+    }
+
     array->capacity = 16;
     array->len = 0;
     return array;
@@ -548,29 +589,39 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
     str->len = len;
 }
 
-void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
+JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
     double mstrtod(char *value);
-    void parse_array(Json_Array *array, Json_Tokenizer *tokenizer);
+    JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer);
 
+    JSON_ERROR err = 0;
     char buffer[MAX_STR_LEN];
 
     int cnt = 0;
     do {
-        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+        err = next_token(tokenizer);
+        if (err != 0) {
+            return err;
+        }
 
         if (tokenizer->token->type != TOKEN_STRING) {
-            panic("Expected TOKEN_STRING find %s", token_desc(tokenizer->token->type));
+            return ERR_MALFORMED_JSON;
         }
 
         memmove(buffer, tokenizer->token->value, MAX_STR_LEN);
 
-        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
-
-        if (tokenizer->token->type != TOKEN_COLON) {
-            panic("Expected `:` find %s", tokenizer->token->value);
+        err = next_token(tokenizer);
+        if (err != 0) {
+            return err;
         }
 
-        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+        if (tokenizer->token->type != TOKEN_COLON) {
+            return ERR_MALFORMED_JSON;
+        }
+
+        err = next_token(tokenizer);
+        if (err != 0) {
+            return err;
+        }
 
         switch(tokenizer->token->type) {
             case TOKEN_STRING: {
@@ -579,69 +630,105 @@ void parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
                 parse_string(&str, tokenizer->token->value);
                 value.string.content = str.content;
                 value.string.len = str.len;
-                hm_put(object, buffer, value, JSON_STRING);
+                err = hm_put(object, buffer, value, JSON_STRING);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
+
             } break;
 
             case TOKEN_NULL: {
                 Json_Value value = {0};
                 value.null = NULL;
-                hm_put(object, buffer, value, JSON_NULL);
+                err = hm_put(object, buffer, value, JSON_NULL);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_NUMBER: {
                 Json_Value value = {0};
                 log_debug(FMT_TOKEN, ARG_TOKEN(tokenizer->token));
                 value.number = mstrtod(tokenizer->token->value);
-                hm_put(object, buffer, value, JSON_NUMBER);
+                err = hm_put(object, buffer, value, JSON_NUMBER);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_BOOLEAN: {
                 Json_Value value = {0};
-                if (tokenizer->token->value[0] == 't') {
-                    value.boolean = true;
-                } else {
-                    value.boolean = false;
+                value.boolean = tokenizer->token->value[0] == 't' ? true : false;
+                err = hm_put(object, buffer, value, JSON_BOOLEAN);
+                if (err != JSON_NO_ERROR) {
+                    return err;
                 }
-
-                hm_put(object, buffer, value, JSON_BOOLEAN);
             } break;
 
             case TOKEN_OPCBRAKT: {
                 Json_Value value = {0};
                 value.object = malloc(sizeof(Json_Object));;
+                if (value.object == NULL) {
+                    return ERR_NOT_ENOUGH_MEMORY;
+                }
 
-                hm_put(object, buffer, value, JSON_OBJECT);
-
-                parse_object(value.object, tokenizer);
+                err = hm_put(object, buffer, value, JSON_OBJECT);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
+                err = parse_object(value.object, tokenizer);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_OPBRAKT: {
                 Json_Value value = {0};
-                value.array = alloc_array();
-                parse_array(value.array, tokenizer);
-                hm_put(object, buffer, value, JSON_ARRAY);
+                value.array = alloc_array(&err);
+                if (value.array == NULL) {
+                    return err;
+                }
+
+                err = parse_array(value.array, tokenizer);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
+
+                err = hm_put(object, buffer, value, JSON_ARRAY);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
                 break;
             }
 
             default: {
-                panic("Not a valid token "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
+                panic("Invalid token %s", token_desc(tokenizer->token->type));
             }
         }
 
-        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+        err = next_token(tokenizer);
+        if (err != 0) {
+            return err;
+        }
 
     } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
 
     if (tokenizer->token->type != TOKEN_CLCBRAKT) {
-        panic("expected `}` or `,`, find %s in byte %d", tokenizer->token->value, tokenizer->cursor);
+        return ERR_MALFORMED_JSON;
     }
+
+    return 0;
 }
 
-void parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
+JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
     double mstrtod(char *value);
+    JSON_ERROR err = 0;
 
     do {
-        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+        err = next_token(tokenizer);
+        if (err != 0) {
+            return err;
+        }
 
         Json_Value value = {0};
         switch(tokenizer->token->type) {
@@ -650,17 +737,26 @@ void parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
                 parse_string(&str, tokenizer->token->value);
                 value.string.content = str.content;
                 value.string.len = str.len;
-                json_append(array, value, JSON_STRING);
+                err = json_append(array, value, JSON_STRING);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_NULL: {
                 value.null = NULL;
-                json_append(array, value, JSON_NULL);
+                err = json_append(array, value, JSON_NULL);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_NUMBER: {
                 value.number = mstrtod(tokenizer->token->value);
-                json_append(array, value, JSON_NUMBER);
+                err = json_append(array, value, JSON_NUMBER);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_BOOLEAN: {
@@ -670,14 +766,28 @@ void parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
                     value.boolean = false;
                 }
 
-                json_append(array, value, JSON_BOOLEAN);
+                err = json_append(array, value, JSON_BOOLEAN);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_OPCBRAKT: {
                 Json_Value value = {0};
-                value.object = malloc(sizeof(Json_Object));;
-                parse_object(value.object, tokenizer);
-                json_append(array, value, JSON_OBJECT);
+                value.object = malloc(sizeof(Json_Object));
+                if (value.object == NULL) {
+                    return ERR_NOT_ENOUGH_MEMORY;
+                }
+
+                err = parse_object(value.object, tokenizer);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
+
+                err = json_append(array, value, JSON_OBJECT);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
             } break;
 
             case TOKEN_OPBRAKT: {
@@ -686,41 +796,73 @@ void parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
             }
 
             default: {
-                panic("Not a valid token "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
+                panic("Invalid token %s", token_desc(tokenizer->token->type));
             }
         }
 
-        THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+        err = next_token(tokenizer);
+        if (err != 0) {
+            return err;
+        }
 
     } while (tokenizer->token->type == TOKEN_COMMA);
 
     if (tokenizer->token->type != TOKEN_CLBRAKT) {
-        panic("expected `]` or `,`, find `%s` on byte %d", tokenizer->token->value, tokenizer->cursor);
+        return ERR_MALFORMED_JSON;
     }
+
+    return 0;
 }
 
-Json* parse_json(char *json_str) {
-    void _parse_json(Json *root, Json_Tokenizer *tokenizer);
+Json* parse_json(char *json_str, JSON_ERROR *err) {
+    JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer);
     Json *json = malloc(sizeof(Json));
-    if (!json) return NULL;
+    if (json == NULL) {
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        goto CLEANUP;
+    }
 
     Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
-    if (!tokenizer) return NULL;
+    if (tokenizer == NULL) {
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        goto CLEANUP;
+    }
 
     tokenizer->cursor = 0;
     tokenizer->json_str = json_str;
-    tokenizer->token = malloc(sizeof(Json_Token));
 
-    if (!tokenizer->token) return NULL;
-    _parse_json(json, tokenizer);
+    tokenizer->token = malloc(sizeof(Json_Token));
+    if (tokenizer->token == NULL) {
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        goto CLEANUP;
+    }
+
+    *err = _parse_json(json, tokenizer);
+    if (*err != JSON_NO_ERROR) {
+        goto CLEANUP;
+    }
 
     free(tokenizer->token);
     free(tokenizer);
     return json;
+
+CLEANUP:
+    if (json) free(json);
+    if (tokenizer) {
+        if (tokenizer->token) free(tokenizer->token);
+        free(tokenizer);
+    }
+
+    return NULL;
 }
 
-void _parse_json(Json *root, Json_Tokenizer *tokenizer) {
-    THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
+JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer) {
+    JSON_ERROR err = 0;
+
+    err = next_token(tokenizer);
+    if (err != 0) {
+        return err;
+    }
 
     if (root->type != 0) {
         panic("root type must not be set before parsing");
@@ -730,19 +872,37 @@ void _parse_json(Json *root, Json_Tokenizer *tokenizer) {
         case TOKEN_OPCBRAKT: {
             root->type = JSON_OBJECT;
             root->as.object = malloc(sizeof(Json_Object));
-            parse_object(root->as.object, tokenizer);
+            if (root->as.object == NULL) {
+                return ERR_NOT_ENOUGH_MEMORY;
+            }
+
+            err = parse_object(root->as.object, tokenizer);
+            if (err != JSON_NO_ERROR) {
+                return err;
+            }
+
         } break;
 
         case TOKEN_OPBRAKT: {
             root->type = JSON_ARRAY;
-            root->as.array = alloc_array();
-            parse_array(root->as.array, tokenizer);
+            root->as.array = alloc_array(&err);
+            if (root->as.array == NULL) {
+                return err;
+            }
+
+            err = parse_array(root->as.array, tokenizer);
+            if (err != JSON_NO_ERROR) {
+                return err;
+            }
+
         } break;
 
         default: {
-            panic("Expected `[` or `{` finded "FMT_TOKEN, ARG_TOKEN(tokenizer->token));
+            return ERR_EXPECTED_OBJECT_OR_ARRAY;
         } break;
     }
+
+    return 0;
 }
 
 void log_init(Log_Config *config) {
@@ -818,7 +978,6 @@ double powerd(double x, int y)
             return (temp * temp) / x;
     }
 }
-
 
 /*
 Parses a json number string to a C double value

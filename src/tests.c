@@ -117,11 +117,17 @@ int main(void) {
 
 bool do_parsing_test(struct Test_Case *c) {
     Json *json;
+    JSON_ERROR error;
     for (size_t i = 0; i < ARRAY_SIZE(c->input); i++) {
         if (*c->input[i] == '\0') break;
 
         char *json_str = c->input[i];
-        json = parse_json(json_str);
+        json = parse_json(json_str, &error);
+        if (error != JSON_NO_ERROR) {
+            log_info("%s => %s %s %s", c->name, TEST_FAILED, json_error_desc(error), json_str);
+            goto FAIL;
+        }
+
         if (json == NULL) {
             log_info("%s => %s %s %s", c->name, TEST_FAILED, "cannot parse json string", json_str);
             goto FAIL;
@@ -237,9 +243,15 @@ FAIL:
 }
 
 bool test_json_doest_have_key(void) {
+    JSON_ERROR error;
     char *j = "{\"hello\": \"world\"}";
 
-    Json *json = parse_json(j);
+    Json *json = parse_json(j, &error);
+    if (error != JSON_NO_ERROR) {
+        log_info("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error), j);
+        goto FAIL;
+    }
+
     if (json == NULL) {
         log_info("%s => %s %s", __func__, TEST_FAILED, "cannot parse json string");
         goto FAIL;
@@ -266,8 +278,14 @@ FAIL:
 }
 
 bool test_parse_json_array(void) {
+    JSON_ERROR error;
+
     char *j = "{\"array\": [1, 2, 3, 4, 5]}";
-    Json *json = parse_json(j);
+    Json *json = parse_json(j, &error);
+    if (error != JSON_NO_ERROR) {
+        log_info("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error), j);
+        goto FAIL;
+    }
 
     if (json == NULL) {
         log_info("%s => %s %s %s", __func__, TEST_FAILED, "cannot parse json array", j);
@@ -343,7 +361,13 @@ FAIL:
 
 bool test_json_multiple_keys(void) {
     char *j = "{\"hello\": \"world\", \"number\": 1, \"bool\": true, \"null\": null}";
-    Json *json = parse_json(j);
+    JSON_ERROR error;
+
+    Json *json = parse_json(j, &error);
+    if (error != JSON_NO_ERROR) {
+        log_info("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error), j);
+        goto FAIL;
+    }
 
     if (json == NULL) {
         log_info("%s => %s %s %s", __func__, TEST_FAILED, "cannot parse json string", j);
