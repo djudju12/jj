@@ -6,7 +6,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
-///////
+/////// Logging
 typedef
 struct {
     FILE *finfo;       // default stdout
@@ -28,37 +28,37 @@ void log_info(char *fmt, ...);
 void log_error(const char *fmt, ...);
 void log_warning(const char *fmt, ...);
 void log_debug(const char *fmt, ...);
-void panic(const char *fmt, ...);
+void panic(const char *fmt, ...);           // exits with exit code 1 after printing the message
 //////
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 typedef
 enum {
-    TOKEN_OPCBRAKT,
-    TOKEN_CLCBRAKT,
-    TOKEN_OPBRAKT ,
+    TOKEN_BOOLEAN ,
     TOKEN_CLBRAKT ,
-    TOKEN_STRING  ,
+    TOKEN_CLCBRAKT,
     TOKEN_COLON   ,
     TOKEN_COMMA   ,
-    TOKEN_NUMBER  ,
-    TOKEN_BOOLEAN ,
     TOKEN_NULL    ,
+    TOKEN_NUMBER  ,
+    TOKEN_OPBRAKT ,
+    TOKEN_OPCBRAKT,
+    TOKEN_STRING  ,
     _TOTAL_TOKENS ,
 } Token_Type;
 
 char* TOKEN_DESCRIPTION[] = {
-    [TOKEN_OPCBRAKT]  = "TOKEN_OPCBRAKT",
-    [TOKEN_CLCBRAKT]  = "TOKEN_CLCBRAKT",
-    [TOKEN_OPBRAKT]   = "TOKEN_OPBRAKT" ,
+    [TOKEN_BOOLEAN]   = "TOKEN_BOOLEAN" ,
     [TOKEN_CLBRAKT]   = "TOKEN_CLBRAKT" ,
-    [TOKEN_STRING]    = "TOKEN_STRING"  ,
+    [TOKEN_CLCBRAKT]  = "TOKEN_CLCBRAKT",
     [TOKEN_COLON]     = "TOKEN_COLON"   ,
     [TOKEN_COMMA]     = "TOKEN_COMMA"   ,
-    [TOKEN_NUMBER]    = "TOKEN_NUMBER"  ,
-    [TOKEN_BOOLEAN]   = "TOKEN_BOOLEAN" ,
     [TOKEN_NULL]      = "TOKEN_NULL"    ,
+    [TOKEN_NUMBER]    = "TOKEN_NUMBER"  ,
+    [TOKEN_OPBRAKT]   = "TOKEN_OPBRAKT" ,
+    [TOKEN_OPCBRAKT]  = "TOKEN_OPCBRAKT",
+    [TOKEN_STRING]    = "TOKEN_STRING"  ,
 };
 
 _Static_assert(
@@ -214,21 +214,21 @@ typedef void* Null;
 typedef
 enum {
     JSON_ARRAY       ,
-    JSON_OBJECT      ,
-    JSON_STRING      ,
-    JSON_NUMBER      ,
     JSON_BOOLEAN     ,
     JSON_NULL        ,
+    JSON_NUMBER      ,
+    JSON_OBJECT      ,
+    JSON_STRING      ,
     _TOTAL_JSON_TYPES,
 } Json_Type;
 
 char* JSON_TYPE_DESCRIPTION[] = {
     [JSON_ARRAY]   = "JSON_ARRAY"  ,
-    [JSON_OBJECT]  = "JSON_OBJECT" ,
-    [JSON_STRING]  = "JSON_STRING" ,
-    [JSON_NUMBER]  = "JSON_NUMBER" ,
     [JSON_BOOLEAN] = "JSON_BOOLEAN",
     [JSON_NULL]    = "JSON_NULL"   ,
+    [JSON_NUMBER]  = "JSON_NUMBER" ,
+    [JSON_OBJECT]  = "JSON_OBJECT" ,
+    [JSON_STRING]  = "JSON_STRING" ,
 };
 
 _Static_assert(
@@ -251,11 +251,11 @@ typedef struct Json_Array Json_Array;
 
 typedef
 union {
-    Json_Object *object;
-    Json_Array *array;
-    Json_String string;
-    double number;
     bool boolean;
+    double number;
+    Json_Array *array;
+    Json_Object *object;
+    Json_String string;
     Null null;
 } Json_Value;
 
@@ -405,7 +405,7 @@ void hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type ty
     }
 }
 
-unsigned int json_geti(Json_Object *object, const char *key) {
+int json_geti(Json_Object *object, const char *key) {
     int len = 0;
     long int h = hash_string(key, &len);
 
@@ -414,6 +414,8 @@ unsigned int json_geti(Json_Object *object, const char *key) {
         h++;
         i = &object->table[HASHMAP_INDEX(h)];
     }
+
+    if (*i == 0 && memcmp(object->entries[*i].key, key, len) != 0) return -1;
 
     return *i;
 }
@@ -657,7 +659,27 @@ void parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
     }
 }
 
-void parse_json(Json *root, Json_Tokenizer *tokenizer) {
+Json* parse_json(char *json_str) {
+    void _parse_json(Json *root, Json_Tokenizer *tokenizer);
+    Json *json = malloc(sizeof(Json));
+    if (!json) return NULL;
+
+    Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
+    if (!tokenizer) return NULL;
+
+    tokenizer->cursor = 0;
+    tokenizer->json_str = json_str;
+    tokenizer->token = malloc(sizeof(Json_Token));
+
+    if (!tokenizer->token) return NULL;
+    _parse_json(json, tokenizer);
+
+    free(tokenizer->token);
+    free(tokenizer);
+    return json;
+}
+
+void _parse_json(Json *root, Json_Tokenizer *tokenizer) {
     THROW_IF_NEXT_TOKEN_IS_END_OF_INPUT(tokenizer);
 
     if (root->type != 0) {
@@ -733,27 +755,6 @@ void log_debug(const char *fmt, ...) {
 void panic(const char *fmt, ...) {
     _log_wrapper(log_config.ferror, "[ ERROR ] ", fmt)
     exit(1);
-}
-
-/////////////
-Json json = {0};
-int main(void) {
-    Log_Config config = {
-        .debug = true,
-    };
-
-    log_init(&config);
-
-    log_debug("json = %s", j);
-
-    Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
-    tokenizer->token = malloc(sizeof(Json_Token));
-    tokenizer->json_str = j;
-    tokenizer->cursor = 0;
-
-    parse_json(&json, tokenizer);
-
-    return 0;
 }
 
 /*
