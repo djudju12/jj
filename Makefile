@@ -17,3 +17,7 @@ test: src/jj.c
 debug: out/ src/jj.c
 	$(CC) $(CFLAGS) -g -o out/jj src/jj.c
 	gf2 out/jj &
+
+debug/test:
+	$(CC) $(CFLAGS) -ggdb -o out/tests src/tests.c
+	gf2 out/tests &

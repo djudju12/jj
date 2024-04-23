@@ -28,6 +28,7 @@ void log_info(char *fmt, ...);
 void log_error(const char *fmt, ...);
 void log_warning(const char *fmt, ...);
 void log_debug(const char *fmt, ...);
+void log_test(const char *fmt, ...);
 void panic(const char *fmt, ...);           // exits with exit code 1 after printing the message
 //////
 
@@ -41,6 +42,7 @@ typedef enum {
     ERR_MALFORMED_JSON          ,
     ERR_NOT_ENOUGH_MEMORY       ,
     ERR_EXPECTED_OBJECT_OR_ARRAY,
+    ERR_UNEXPECTED_END_OF_INPUT ,
     _TOTAL_ERRORS               ,
 } JSON_ERROR;
 
@@ -51,6 +53,7 @@ char *JSON_ERROR_DESC[] = {
     [ERR_MALFORMED_JSON]           = "malformed json"                    ,
     [ERR_NOT_ENOUGH_MEMORY]        = "not enough memory to do allocation",
     [ERR_EXPECTED_OBJECT_OR_ARRAY] = "expected `{` or `[`"               ,
+    [ERR_UNEXPECTED_END_OF_INPUT]  = "unexpected end of input"           ,
 };
 
 _Static_assert(
@@ -125,7 +128,7 @@ static char next_char(Json_Tokenizer *tokenizer) {
     return tokenizer->json_str[tokenizer->cursor++];
 }
 
-int next_token(Json_Tokenizer *tokenizer) {
+int next_token(Json_Tokenizer *tokenizer, JSON_ERROR *err) {
     double powerd(double x, int y);
 
     char next_char(Json_Tokenizer *tokenizer);
@@ -147,7 +150,8 @@ int next_token(Json_Tokenizer *tokenizer) {
             }
 
             if (c == EOJ) {
-                return ERR_UNCLOSED_STRING;
+                *err = ERR_UNCLOSED_STRING;
+                return -1;
             }
 
             tokenizer->token->type = TOKEN_STRING;
@@ -191,8 +195,11 @@ int next_token(Json_Tokenizer *tokenizer) {
                 }
             }
 
+            if (c != EOJ) {
+                tokenizer->cursor--;
+            }
+
             tokenizer->token->type = TOKEN_NUMBER;
-            tokenizer->cursor--;
         } break;
 
         /* is false */
@@ -202,7 +209,8 @@ int next_token(Json_Tokenizer *tokenizer) {
                 next_char(tokenizer) != 's' ||
                 next_char(tokenizer) != 'e')
             {
-                return ERR_UNEXPECTED_CHAR;
+                *err = ERR_UNEXPECTED_CHAR;
+                return 0;
             }
 
             *tokenizer->token->value = '\0';
@@ -218,7 +226,8 @@ int next_token(Json_Tokenizer *tokenizer) {
                 next_char(tokenizer) != 'u' ||
                 next_char(tokenizer) != 'e')
             {
-                return ERR_UNEXPECTED_CHAR;
+                *err = ERR_UNEXPECTED_CHAR;
+                return 0;
             }
 
             *tokenizer->token->value = '\0';
@@ -234,7 +243,8 @@ int next_token(Json_Tokenizer *tokenizer) {
                 next_char(tokenizer) != 'l' ||
                 next_char(tokenizer) != 'l')
             {
-                return ERR_UNEXPECTED_CHAR;
+                *err = ERR_UNEXPECTED_CHAR;
+                return 0;
             }
 
             tokenizer->token->type = TOKEN_NULL;
@@ -271,7 +281,8 @@ int next_token(Json_Tokenizer *tokenizer) {
         } break;
 
         default: {
-            return ERR_UNEXPECTED_CHAR;
+            *err = ERR_UNEXPECTED_CHAR;
+            return 0;
         }
     }
 
@@ -384,7 +395,8 @@ long int hash_string(const char *str, int *op_len) {
     return h;
 }
 
-//trying to use a hash map //////
+#define RETURN_ERROR_IF_END_OF_INPUT(tokenizer, err) if (next_token((tokenizer), (err)) == -1 && *(err) == JSON_NO_ERROR) return ERR_UNEXPECTED_END_OF_INPUT
+
 JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type type) {
     int len = 0;
     long int h = hash_string(key, &len);
@@ -598,8 +610,8 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
 
     int cnt = 0;
     do {
-        err = next_token(tokenizer);
-        if (err != 0) {
+        RETURN_ERROR_IF_END_OF_INPUT(tokenizer, &err);
+        if (err != JSON_NO_ERROR) {
             return err;
         }
 
@@ -609,8 +621,8 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
 
         memmove(buffer, tokenizer->token->value, MAX_STR_LEN);
 
-        err = next_token(tokenizer);
-        if (err != 0) {
+        RETURN_ERROR_IF_END_OF_INPUT(tokenizer, &err);
+        if (err != JSON_NO_ERROR) {
             return err;
         }
 
@@ -618,8 +630,8 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
             return ERR_MALFORMED_JSON;
         }
 
-        err = next_token(tokenizer);
-        if (err != 0) {
+        RETURN_ERROR_IF_END_OF_INPUT(tokenizer, &err);
+        if (err != JSON_NO_ERROR) {
             return err;
         }
 
@@ -706,10 +718,11 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
             }
         }
 
-        err = next_token(tokenizer);
-        if (err != 0) {
+        RETURN_ERROR_IF_END_OF_INPUT(tokenizer, &err);
+        if (err != JSON_NO_ERROR) {
             return err;
         }
+
 
     } while (cnt++ < MAX_OBJECT_ENTRIES && tokenizer->token->type == TOKEN_COMMA);
 
@@ -725,8 +738,8 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
     JSON_ERROR err = 0;
 
     do {
-        err = next_token(tokenizer);
-        if (err != 0) {
+        RETURN_ERROR_IF_END_OF_INPUT(tokenizer, &err);
+        if (err != JSON_NO_ERROR) {
             return err;
         }
 
@@ -800,8 +813,8 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
             }
         }
 
-        err = next_token(tokenizer);
-        if (err != 0) {
+        RETURN_ERROR_IF_END_OF_INPUT(tokenizer, &err);
+        if (err != JSON_NO_ERROR) {
             return err;
         }
 
@@ -815,6 +828,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
 }
 
 Json* parse_json(char *json_str, JSON_ERROR *err) {
+    *err = 0;
     JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer);
     Json *json = malloc(sizeof(Json));
     if (json == NULL) {
@@ -859,8 +873,8 @@ CLEANUP:
 JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer) {
     JSON_ERROR err = 0;
 
-    err = next_token(tokenizer);
-    if (err != 0) {
+    next_token(tokenizer, &err);
+    if (err != JSON_NO_ERROR) {
         return err;
     }
 
@@ -945,6 +959,10 @@ void log_error(const char *fmt, ...) {
 
 void log_warning(const char *fmt, ...) {
     _log_wrapper(log_config.finfo, "[ WARNING ] ", fmt)
+}
+
+void log_test(const char *fmt, ...) {
+    _log_wrapper(log_config.finfo, "[ TEST ] ", fmt)
 }
 
 void log_debug(const char *fmt, ...) {
