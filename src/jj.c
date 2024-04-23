@@ -98,10 +98,13 @@ static char next_char(Json_Tokenizer *tokenizer) {
 int next_token(Json_Tokenizer *tokenizer) {
     double powerd(double x, int y);
 
-    char next_char (Json_Tokenizer *tokenizer);
+    char next_char(Json_Tokenizer *tokenizer);
     char c = next_char(tokenizer);
 
-    while (c != EOJ && isspace(c)) c = next_char(tokenizer);
+    while (c != EOJ && isspace(c)) {
+        c = next_char(tokenizer);
+    }
+
     if (c == EOJ) return -1;
 
     unsigned int i = 0;
