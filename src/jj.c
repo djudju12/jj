@@ -104,104 +104,141 @@ int next_token(Json_Tokenizer *tokenizer) {
     while (c != EOJ && isspace(c)) c = next_char(tokenizer);
     if (c == EOJ) return -1;
 
-    /* is string */
     unsigned int i = 0;
-    if (c == '"') {
-        while (c != EOJ && (c = next_char(tokenizer)) != '"') {
-            tokenizer->token->value[i++] = c;
-        }
 
-        tokenizer->token->value[i] = '\0';
-        tokenizer->token->type = TOKEN_STRING;
-        return 0; /* token is string, nothing to do anymore */
-    } else if (c == '-' || c == '+' || isdigit(c)) {
+    switch (c) {
+        /* is string */
+        case '"': {
+            while (c != EOJ && (c = next_char(tokenizer)) != '"') {
+                tokenizer->token->value[i++] = c;
+            }
+
+            tokenizer->token->type = TOKEN_STRING;
+        } break;
+
         /* is number */
-        tokenizer->token->value[i++] = c;
-        c = next_char(tokenizer);
-        while(c != EOJ && isdigit(c)) {
-            tokenizer->token->value[i++] = c;
-            c = next_char(tokenizer);
-        }
-
-        if (c == '.') {
+        case '+': case '-':
+        case '0': case '1':
+        case '2': case '3':
+        case '4': case '5':
+        case '6': case '7':
+        case '8': case '9':
+        {
             tokenizer->token->value[i++] = c;
             c = next_char(tokenizer);
             while(c != EOJ && isdigit(c)) {
                 tokenizer->token->value[i++] = c;
                 c = next_char(tokenizer);
             }
-        }
 
-        if (c == 'e') {
+            if (c == '.') {
+                tokenizer->token->value[i++] = c;
+                c = next_char(tokenizer);
+                while(c != EOJ && isdigit(c)) {
+                    tokenizer->token->value[i++] = c;
+                    c = next_char(tokenizer);
+                }
+            }
+
+            if (c == 'e') {
+                tokenizer->token->value[i++] = c;
+                c = next_char(tokenizer);
+                if (c == '-' || c == '+') {
+                    tokenizer->token->value[i++] = c;
+                    c = next_char(tokenizer);
+                }
+
+                while(c != EOJ && isdigit(c)) {
+                    tokenizer->token->value[i++] = c;
+                    c = next_char(tokenizer);
+                }
+            }
+
+            tokenizer->token->type = TOKEN_NUMBER;
+            tokenizer->cursor--;
+        } break;
+
+        /* is false */
+        case 'f': {
+            if (next_char(tokenizer) != 'a' ||
+                next_char(tokenizer) != 'l' ||
+                next_char(tokenizer) != 's' ||
+                next_char(tokenizer) != 'e')
+            {
+                panic("Unexpected character %s", c);
+            }
+
+            *tokenizer->token->value = '\0';
+            strncat(tokenizer->token->value, "false", 6);
+            i = 6;
+
+            tokenizer->token->type = TOKEN_BOOLEAN;
+        } break;
+
+        /* is true */
+        case 't': {
+            if (next_char(tokenizer) != 'r' ||
+                next_char(tokenizer) != 'u' ||
+                next_char(tokenizer) != 'e')
+            {
+                panic("Unexpected character %s", c);
+            }
+
+            *tokenizer->token->value = '\0';
+            strncat(tokenizer->token->value, "true", 5);
+            i = 5;
+
+            tokenizer->token->type = TOKEN_BOOLEAN;
+        } break;
+
+        /* is null */
+        case 'n': {
+            if (next_char(tokenizer) != 'u' ||
+                next_char(tokenizer) != 'l' ||
+                next_char(tokenizer) != 'l')
+            {
+                panic("Unexpected character %s", c);
+            }
+
+            tokenizer->token->type = TOKEN_NULL;
+        } break;
+
+        case '{': {
+            tokenizer->token->type = TOKEN_OPCBRAKT;
             tokenizer->token->value[i++] = c;
-            c = next_char(tokenizer);
-            if (c == '-' || c == '+') {
-                tokenizer->token->value[i++] = c;
-                c = next_char(tokenizer);
-            }
+        } break;
 
-            while(c != EOJ && isdigit(c)) {
-                tokenizer->token->value[i++] = c;
-                c = next_char(tokenizer);
-            }
+        case '}': {
+            tokenizer->token->type = TOKEN_CLCBRAKT;
+            tokenizer->token->value[i++] = c;
+        } break;
+
+        case '[': {
+            tokenizer->token->type = TOKEN_OPBRAKT;
+            tokenizer->token->value[i++] = c;
+        } break;
+
+        case ']': {
+            tokenizer->token->type = TOKEN_CLBRAKT;
+            tokenizer->token->value[i++] = c;
+        } break;
+
+        case ':': {
+            tokenizer->token->type = TOKEN_COLON;
+            tokenizer->token->value[i++] = c;
+        } break;
+
+        case ',': {
+            tokenizer->token->type = TOKEN_COMMA;
+            tokenizer->token->value[i++] = c;
+        } break;
+
+        default: {
+            panic("Invalid token `%c`", c);
         }
-
-        tokenizer->token->value[i] = '\0';
-        tokenizer->token->type = TOKEN_NUMBER;
-        tokenizer->cursor--;
-    } else if (c == 'f') {
-        /* boolean */
-        if (next_char(tokenizer) != 'a' ||
-            next_char(tokenizer) != 'l' ||
-            next_char(tokenizer) != 's' ||
-            next_char(tokenizer) != 'e')
-        {
-            panic("Unexpected character %s", c);
-        }
-
-        *tokenizer->token->value = '\0';
-        strncat(tokenizer->token->value, "false", 6);
-        tokenizer->token->type = TOKEN_BOOLEAN;
-    } else if (c == 't') {
-        if (next_char(tokenizer) != 'r' ||
-            next_char(tokenizer) != 'u' ||
-            next_char(tokenizer) != 'e')
-        {
-            panic("Unexpected character %s", c);
-        }
-
-        *tokenizer->token->value = '\0';
-        strncat(tokenizer->token->value, "true", 5);
-        tokenizer->token->type = TOKEN_BOOLEAN;
-    } else if (c == 'n') {
-        if (next_char(tokenizer) != 'u' ||
-            next_char(tokenizer) != 'l' ||
-            next_char(tokenizer) != 'l')
-        {
-            panic("Unexpected character %s", c);
-        }
-
-        *tokenizer->token->value = '\0';
-        tokenizer->token->type = TOKEN_NULL;
-    } else {
-        /* rest of the 1 char tokens are readed in the string buffer */
-        switch (c) {
-            case '{': tokenizer->token->type = TOKEN_OPCBRAKT; break;
-            case '}': tokenizer->token->type = TOKEN_CLCBRAKT; break;
-            case '[': tokenizer->token->type = TOKEN_OPBRAKT;  break;
-            case ']': tokenizer->token->type = TOKEN_CLBRAKT;  break;
-            case ':': tokenizer->token->type = TOKEN_COLON;    break;
-            case ',': tokenizer->token->type = TOKEN_COMMA;    break;
-            default: {
-                panic("Invalid token `%c`", c);
-            }
-        }
-
-        tokenizer->token->value[i++] = c;
-        tokenizer->token->value[i] = '\0';
     }
 
-
+    tokenizer->token->value[i] = '\0';
     log_debug(FMT_TOKEN, ARG_TOKEN(tokenizer->token));
     return 0;
 }
