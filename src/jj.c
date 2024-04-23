@@ -328,7 +328,7 @@ void hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type ty
         object->entries[*i].type = type;
         object->entries[*i].key = malloc(sizeof(char) * len);
         strncpy(object->entries[*i].key, key, len);
-    } else {
+    } else if (type != object->entries[*i].type) {
         panic("TODO: maybe enable updating to another type");
     }
 

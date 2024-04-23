@@ -80,9 +80,12 @@ struct Test_Case parse_tests_cases[] = {
 
 bool test_json_doest_have_key(void);
 bool test_parse_json_array(void);
+bool test_json_multiple_keys(void);
+
 Test other_tests[] = {
     test_json_doest_have_key,
     test_parse_json_array,
+    test_json_multiple_keys,
 };
 
 int total_tests = 0;
@@ -104,7 +107,11 @@ int main(void) {
 
     log_info("tests run in %lf seconds", (double)(clock() - start) / CLOCKS_PER_SEC);
     log_info("total passed tests: %d", passed_tests);
-    log_info("total failed tests: %d", total_tests - passed_tests);
+    if (total_tests == passed_tests) {
+        log_info("all tests passed.");
+    } else {
+        log_warning("total failed tests: %d", total_tests - passed_tests);
+    }
     return 0;
 }
 
@@ -334,3 +341,144 @@ FAIL:
     return false;
 }
 
+bool test_json_multiple_keys(void) {
+    char *j = "{\"hello\": \"world\", \"number\": 1, \"bool\": true, \"null\": null}";
+    Json *json = parse_json(j);
+
+    if (json == NULL) {
+        log_info("%s => %s %s %s", __func__, TEST_FAILED, "cannot parse json string", j);
+        goto FAIL;
+    }
+
+    if (json->type != JSON_OBJECT) {
+        log_info("%s => %s wrong json type. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_OBJECT),
+                json_type_desc(json->type)
+            );
+        goto FAIL;
+    }
+
+    Json_Object *obj = json->as.object;
+    if (obj == NULL) {
+        log_info("%s => %s %s", __func__, TEST_FAILED, "object is null");
+        goto FAIL;
+    }
+
+    int i = json_geti(obj, "hello");
+    if (i < 0) {
+        log_info("%s => %s key not finded in json", __func__, TEST_FAILED);
+        goto FAIL;
+    }
+
+    Key_Value KV = obj->entries[i];
+    if (KV.type != JSON_STRING) {
+        log_info("%s => %s wrong value type. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_STRING),
+                json_type_desc(obj->entries[i].type)
+            );
+        goto FAIL;
+    }
+
+    if (strncmp("world", KV.value_as.string.content, KV.value_as.string.len) != 0) {
+        log_info("%s => %s strings are different. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                "world",
+                KV.value_as.string.content
+            );
+        goto FAIL;
+    }
+
+    i = json_geti(obj, "number");
+    if (i < 0) {
+        log_info("%s => %s key not finded in json", __func__, TEST_FAILED);
+        goto FAIL;
+    }
+
+    KV = obj->entries[i];
+    if (KV.type != JSON_NUMBER) {
+        log_info("%s => %s wrong value type. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_NUMBER),
+                json_type_desc(obj->entries[i].type)
+            );
+        goto FAIL;
+    }
+
+    if (KV.value_as.number != 1) {
+        log_info("%s => %s numbers are different. Expected %d, find %d",
+                __func__,
+                TEST_FAILED,
+                1,
+                KV.value_as.number
+            );
+        goto FAIL;
+    }
+
+    i = json_geti(obj, "bool");
+    if (i < 0) {
+        log_info("%s => %s key not finded in json", __func__, TEST_FAILED);
+        goto FAIL;
+    }
+
+    KV = obj->entries[i];
+    if (KV.type != JSON_BOOLEAN) {
+        log_info("%s => %s wrong value type. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_BOOLEAN),
+                json_type_desc(obj->entries[i].type)
+            );
+        goto FAIL;
+    }
+
+    if (KV.value_as.boolean != true) {
+        log_info("%s => %s booleans are different. Expected %d, find %d",
+                __func__,
+                TEST_FAILED,
+                true,
+                KV.value_as.boolean
+            );
+        goto FAIL;
+    }
+
+    i = json_geti(obj, "null");
+    if (i < 0) {
+        log_info("%s => %s key not finded in json", __func__, TEST_FAILED);
+        goto FAIL;
+    }
+
+    KV = obj->entries[i];
+    if (KV.type != JSON_NULL) {
+        log_info("%s => %s wrong value type. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_NULL),
+                json_type_desc(obj->entries[i].type)
+            );
+        goto FAIL;
+    }
+
+    if (KV.value_as.null != NULL) {
+        log_info("%s => %s nulls are different. Expected %p, find %p",
+                __func__,
+                TEST_FAILED,
+                NULL,
+                KV.value_as.null
+            );
+        goto FAIL;
+    }
+
+    free(json);
+    log_info("%s => %s", __func__, TEST_SUCCESS);
+    return true;
+
+FAIL:
+    if (json) free(json);
+    return false;
+}
