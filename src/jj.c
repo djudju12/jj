@@ -32,9 +32,7 @@ void log_test(const char *fmt, ...);
 void panic(const char *fmt, ...);           // exits with exit code 1 after printing the message
 //////
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
-// errors definitions
+// API definition
 typedef enum {
     JSON_NO_ERROR = 0           ,
     ERR_UNCLOSED_STRING         ,
@@ -46,6 +44,24 @@ typedef enum {
     _TOTAL_ERRORS               ,
 } JSON_ERROR;
 
+typedef struct Json Json;
+typedef struct Json_Array Json_Array;
+typedef struct Json_Object Json_Object;
+typedef struct Key_Value Key_Value;
+typedef struct Item Item;
+
+Json* parse_json(char *json_str, JSON_ERROR *err);              // parses a json string to a Json struct
+Key_Value* json_get(Json_Object *object, const char *key);      // returns a key value pair from a json object
+JSON_ERROR json_put(Json_Object *object, Key_Value *key_value); // puts a key value pair in a json object
+JSON_ERROR json_append(Json_Array *array, Item item);           // appends a value to a json array
+bool json_del(Json_Object *object, const char *key);            // deletes a key value pair from a json object
+char *json_to_string(Json_Object *object);                      // returns a json object as a string
+char* json_error_desc(JSON_ERROR error);                        // returns the description of the error
+//////
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+// errors definitions
 char *JSON_ERROR_DESC[] = {
     [JSON_NO_ERROR]                = "no error"                          ,
     [ERR_UNCLOSED_STRING]          = "unclosed string"                   ,
@@ -329,9 +345,6 @@ struct {
     unsigned int len;
 } Json_String;
 
-typedef struct Json_Object Json_Object;
-typedef struct Json_Array Json_Array;
-
 typedef
 union {
     bool boolean;
@@ -342,18 +355,16 @@ union {
     Null null;
 } Json_Value;
 
-typedef
-struct {
+struct Key_Value {
     char *key;
     Json_Value value_as;
     Json_Type type;
-} Key_Value;
+};
 
-typedef
-struct {
+struct Item {
     Json_Value item_as;
     Json_Type type;
-} Item;
+};
 
 #define MAX_OBJECT_ENTRIES 256
 #define HASHMAP_INDEX(h) (h & (MAX_OBJECT_ENTRIES - 1))
@@ -370,14 +381,13 @@ struct Json_Array {
     unsigned int len;
 };
 
-typedef
-struct {
+struct Json {
     union {
         Json_Object *object;
-        Json_Array *array; /* TODO: add array type */
+        Json_Array *array;
     } as;
     Json_Type type;
-} Json;
+};
 
 long int hash_string(const char *str, int *op_len) {
     long int h = 0;
@@ -504,7 +514,7 @@ int json_geti(Json_Object *object, const char *key) {
     return *i;
 }
 
-JSON_ERROR json_append(Json_Array *array, Json_Value value, Json_Type type) {
+JSON_ERROR _json_append(Json_Array *array, Json_Value value, Json_Type type) {
     const int growth_factor = 2;
     if (array == NULL) {
         panic("array is a null pointer. TODO: simplify memory management");
@@ -750,7 +760,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
                 parse_string(&str, tokenizer->token->value);
                 value.string.content = str.content;
                 value.string.len = str.len;
-                err = json_append(array, value, JSON_STRING);
+                err = _json_append(array, value, JSON_STRING);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -758,7 +768,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
 
             case TOKEN_NULL: {
                 value.null = NULL;
-                err = json_append(array, value, JSON_NULL);
+                err = _json_append(array, value, JSON_NULL);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -766,7 +776,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
 
             case TOKEN_NUMBER: {
                 value.number = mstrtod(tokenizer->token->value);
-                err = json_append(array, value, JSON_NUMBER);
+                err = _json_append(array, value, JSON_NUMBER);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -779,7 +789,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
                     value.boolean = false;
                 }
 
-                err = json_append(array, value, JSON_BOOLEAN);
+                err = _json_append(array, value, JSON_BOOLEAN);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -797,7 +807,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
                     return err;
                 }
 
-                err = json_append(array, value, JSON_OBJECT);
+                err = _json_append(array, value, JSON_OBJECT);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -825,49 +835,6 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
     }
 
     return 0;
-}
-
-Json* parse_json(char *json_str, JSON_ERROR *err) {
-    *err = 0;
-    JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer);
-    Json *json = malloc(sizeof(Json));
-    if (json == NULL) {
-        *err = ERR_NOT_ENOUGH_MEMORY;
-        goto CLEANUP;
-    }
-
-    Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
-    if (tokenizer == NULL) {
-        *err = ERR_NOT_ENOUGH_MEMORY;
-        goto CLEANUP;
-    }
-
-    tokenizer->cursor = 0;
-    tokenizer->json_str = json_str;
-
-    tokenizer->token = malloc(sizeof(Json_Token));
-    if (tokenizer->token == NULL) {
-        *err = ERR_NOT_ENOUGH_MEMORY;
-        goto CLEANUP;
-    }
-
-    *err = _parse_json(json, tokenizer);
-    if (*err != JSON_NO_ERROR) {
-        goto CLEANUP;
-    }
-
-    free(tokenizer->token);
-    free(tokenizer);
-    return json;
-
-CLEANUP:
-    if (json) free(json);
-    if (tokenizer) {
-        if (tokenizer->token) free(tokenizer->token);
-        free(tokenizer);
-    }
-
-    return NULL;
 }
 
 JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer) {
@@ -1060,6 +1027,111 @@ double mstrtod(char *value) {
     return number *= powerd(10.0, expoent);;
 }
 
+/*
+ * Returns a key value pair from a json object
+ * returns NULL if the key was not found
+ */
+Key_Value* json_get(Json_Object *object, const char *key) {
+    int i = json_geti(object, key);
+    if (i == -1) return NULL;
+    return &object->entries[i];
+}
+
+/*
+ *  Puts a key value pair in a json object
+ *  returns an error code of `JSON_ERROR`
+ */
+JSON_ERROR json_put(Json_Object *object, Key_Value *key_value) {
+    return hm_put(object, key_value->key, key_value->value_as, key_value->type);
+}
+
+/*
+ *  Appends a Item to a json array
+ *  Item is a struct that contains a Json_Value and a Json_Type
+ *  returns an error code of `JSON_ERROR`
+ */
+JSON_ERROR json_append(Json_Array *array, Item item) {
+    return _json_append(array, item.item_as, item.type);
+}
+
+/*
+ *  Deletes a key value pair from a json object
+ *  returns true if the key was found and deleted
+ */
+bool json_del(Json_Object *object, const char *key) {
+    int i = json_geti(object, key);
+    if (i == -1) return false;
+
+    free(object->entries[i].key);
+    object->entries[i].key = NULL;
+    object->table[HASHMAP_INDEX(hash_string(key, NULL))] = 0;
+    object->len--;
+    return true;
+}
+
+/*
+ *  Parses a json string to a Json struct
+ *  returns a pointer to the Json struct
+ *
+ *  if an error occurs, the `err` pointer will be set to the error code
+ *  and the return will be NULL
+ *
+ *  the error codes are defined in the `JSON_ERROR` enum
+ */
+Json* parse_json(char *json_str, JSON_ERROR *err) {
+    *err = 0;
+    JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer);
+    Json *json = malloc(sizeof(Json));
+    if (json == NULL) {
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        goto CLEANUP;
+    }
+
+    Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
+    if (tokenizer == NULL) {
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        goto CLEANUP;
+    }
+
+    tokenizer->cursor = 0;
+    tokenizer->json_str = json_str;
+
+    tokenizer->token = malloc(sizeof(Json_Token));
+    if (tokenizer->token == NULL) {
+        *err = ERR_NOT_ENOUGH_MEMORY;
+        goto CLEANUP;
+    }
+
+    *err = _parse_json(json, tokenizer);
+    if (*err != JSON_NO_ERROR) {
+        goto CLEANUP;
+    }
+
+    free(tokenizer->token);
+    free(tokenizer);
+    return json;
+
+CLEANUP:
+    if (json) free(json);
+    if (tokenizer) {
+        if (tokenizer->token) free(tokenizer->token);
+        free(tokenizer);
+    }
+
+    return NULL;
+}
+
+/*
+ *  The inverse of parse_json
+ *  Serializes a Json_Object to a C string json representation
+ *
+ *  If fail, log an error and return an empty string
+ */
+char *json_to_string(Json_Object *object) {
+    (void) object;
+    panic("Not implemented yet");
+    return "";
+}
 
 // Copyright 2024 Jonatha Willian dos Santos
 

@@ -216,19 +216,18 @@ bool do_parsing_test(struct Test_Case *c) {
             goto FAIL;
         }
 
-        int j = json_geti(obj, c->key);
-        if (j < 0) {
+        Key_Value *KV = json_get(obj, c->key);
+        if (KV == NULL) {
             log_test("%s => %s key %s not finded in json", c->name, c->key, TEST_FAILED);
             goto FAIL;
         }
 
-        Key_Value KV = obj->entries[j];
-        if (KV.type != c->type) {
+        if (KV->type != c->type) {
             log_test("%s => %s wrong value type. Expected %s, find %s",
                     c->name,
                     TEST_FAILED,
                     json_type_desc(c->type),
-                    json_type_desc(obj->entries[j].type)
+                    json_type_desc(KV->type)
                 );
             goto FAIL;
         }
@@ -236,22 +235,22 @@ bool do_parsing_test(struct Test_Case *c) {
         switch (c->type) {
             case JSON_STRING: {
                 Json_String value = c->expected[i].string;
-                if (value.len != KV.value_as.string.len) {
+                if (value.len != KV->value_as.string.len) {
                     log_test("%s => %s strings have differents sizes. Expected %d, find %d",
                             c->name,
                             TEST_FAILED,
                             value.len,
-                            KV.value_as.string.len
+                            KV->value_as.string.len
                         );
                     goto FAIL;
                 }
 
-                if (strncmp(c->expected[i].string.content, KV.value_as.string.content, c->expected[i].string.len) != 0) {
+                if (strncmp(c->expected[i].string.content, KV->value_as.string.content, c->expected[i].string.len) != 0) {
                     log_test("%s => %s strings are different. Expected %s, find %s",
                             c->name,
                             TEST_FAILED,
                             c->expected[i].string.content,
-                            KV.value_as.string.content
+                            KV->value_as.string.content
                         );
                     goto FAIL;
                 }
@@ -259,24 +258,24 @@ bool do_parsing_test(struct Test_Case *c) {
 
             case JSON_NUMBER: {
                 double value = c->expected[i].number;
-                if (-1*(value - KV.value_as.number) > 0.00001) {
+                if (-1*(value - KV->value_as.number) > 0.00001) {
                     log_test("%s => %s numbers are different. Expected %.6lf, find %.6lf",
                             c->name,
                             TEST_FAILED,
                             value,
-                            KV.value_as.number
+                            KV->value_as.number
                         );
                     goto FAIL;
                 }
             } break;
 
             case JSON_NULL: {
-                if (KV.value_as.null != NULL) {
+                if (KV->value_as.null != NULL) {
                     log_test("%s => %s nulls are different. Expected %p, find %p",
                             c->name,
                             TEST_FAILED,
                             NULL,
-                            KV.value_as.null
+                            KV->value_as.null
                         );
                     goto FAIL;
                 }
@@ -284,12 +283,12 @@ bool do_parsing_test(struct Test_Case *c) {
 
             case JSON_BOOLEAN: {
                 bool value = c->expected[i].boolean;
-                if (value != KV.value_as.boolean) {
+                if (value != KV->value_as.boolean) {
                     log_test("%s => %s booleans are different. Expected %d, find %d",
                             c->name,
                             TEST_FAILED,
                             value,
-                            KV.value_as.boolean
+                            KV->value_as.boolean
                         );
                     goto FAIL;
                 }
@@ -350,12 +349,12 @@ bool test_json_doest_have_key(void) {
 
     Json_Object *obj = json->as.object;
 
-    int i = json_geti(obj, "world");
-    if (i != -1) {
-        log_test("%s => %s find value that doesnt exists in table. Expected -1, find %d",
+    Key_Value *kv = json_get(obj, "world");
+    if (kv) {
+        log_test("%s => %s find value that doesnt exists in table. Expected NULL, find %d",
                 __func__,
                 TEST_FAILED,
-                i
+                kv->type
             );
         goto FAIL;
     }
@@ -399,13 +398,23 @@ bool test_parse_json_array(void) {
         goto FAIL;
     }
 
-    int i = json_geti(obj, "array");
-    if (i < 0) {
+    Key_Value *kv = json_get(obj, "array");
+    if (kv == NULL) {
         log_test("%s => %s key not finded in json", __func__, TEST_FAILED);
         goto FAIL;
     }
 
-    Json_Array *array = obj->entries[i].value_as.array;
+    if (kv->type != JSON_ARRAY) {
+        log_test("%s => %s wrong value type. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_ARRAY),
+                json_type_desc(kv->type)
+            );
+        goto FAIL;
+    }
+
+    Json_Array *array = kv->value_as.array;
 
     if (array->len != 5) {
         log_test("%s => %s wrong array size. Expected %d, find %d",
@@ -481,110 +490,106 @@ bool test_json_multiple_keys(void) {
         goto FAIL;
     }
 
-    int i = json_geti(obj, "hello");
-    if (i < 0) {
+    Key_Value *KV_STR = json_get(obj, "hello");
+    if (KV_STR == NULL) {
         log_test("%s => %s key not finded in json", __func__, TEST_FAILED);
         goto FAIL;
     }
 
-    Key_Value KV = obj->entries[i];
-    if (KV.type != JSON_STRING) {
+    if (KV_STR->type != JSON_STRING) {
         log_test("%s => %s wrong value type. Expected %s, find %s",
                 __func__,
                 TEST_FAILED,
                 json_type_desc(JSON_STRING),
-                json_type_desc(obj->entries[i].type)
+                json_type_desc(KV_STR->type)
             );
         goto FAIL;
     }
 
-    if (strncmp("world", KV.value_as.string.content, KV.value_as.string.len) != 0) {
+    if (strncmp("world", KV_STR->value_as.string.content, KV_STR->value_as.string.len) != 0) {
         log_test("%s => %s strings are different. Expected %s, find %s",
                 __func__,
                 TEST_FAILED,
                 "world",
-                KV.value_as.string.content
+                KV_STR->value_as.string.content
             );
         goto FAIL;
     }
 
-    i = json_geti(obj, "number");
-    if (i < 0) {
+    Key_Value *KV_NUMBER = json_get(obj, "number");
+    if (KV_NUMBER == NULL) {
         log_test("%s => %s key not finded in json", __func__, TEST_FAILED);
         goto FAIL;
     }
 
-    KV = obj->entries[i];
-    if (KV.type != JSON_NUMBER) {
+        if (KV_NUMBER->type != JSON_NUMBER) {
         log_test("%s => %s wrong value type. Expected %s, find %s",
                 __func__,
                 TEST_FAILED,
                 json_type_desc(JSON_NUMBER),
-                json_type_desc(obj->entries[i].type)
+                json_type_desc(KV_NUMBER->type)
             );
         goto FAIL;
     }
 
-    if (KV.value_as.number != 1) {
+    if (KV_NUMBER->value_as.number != 1) {
         log_test("%s => %s numbers are different. Expected %d, find %d",
                 __func__,
                 TEST_FAILED,
                 1,
-                KV.value_as.number
+                KV_NUMBER->value_as.number
             );
         goto FAIL;
     }
 
-    i = json_geti(obj, "bool");
-    if (i < 0) {
+    Key_Value *KV_BOOL = json_get(obj, "bool");
+    if (KV_BOOL == NULL) {
         log_test("%s => %s key not finded in json", __func__, TEST_FAILED);
         goto FAIL;
     }
 
-    KV = obj->entries[i];
-    if (KV.type != JSON_BOOLEAN) {
+    if (KV_BOOL->type != JSON_BOOLEAN) {
         log_test("%s => %s wrong value type. Expected %s, find %s",
                 __func__,
                 TEST_FAILED,
                 json_type_desc(JSON_BOOLEAN),
-                json_type_desc(obj->entries[i].type)
+                json_type_desc(KV_BOOL->type)
             );
         goto FAIL;
     }
 
-    if (KV.value_as.boolean != true) {
+    if (KV_BOOL->value_as.boolean != true) {
         log_test("%s => %s booleans are different. Expected %d, find %d",
                 __func__,
                 TEST_FAILED,
                 true,
-                KV.value_as.boolean
+                KV_BOOL->value_as.boolean
             );
         goto FAIL;
     }
 
-    i = json_geti(obj, "null");
-    if (i < 0) {
+    Key_Value *KV_NULL = json_get(obj, "null");
+    if (KV_NULL == NULL) {
         log_test("%s => %s key not finded in json", __func__, TEST_FAILED);
         goto FAIL;
     }
 
-    KV = obj->entries[i];
-    if (KV.type != JSON_NULL) {
+    if (KV_NULL->type != JSON_NULL) {
         log_test("%s => %s wrong value type. Expected %s, find %s",
                 __func__,
                 TEST_FAILED,
                 json_type_desc(JSON_NULL),
-                json_type_desc(obj->entries[i].type)
+                json_type_desc(KV_NULL->type)
             );
         goto FAIL;
     }
 
-    if (KV.value_as.null != NULL) {
+    if (KV_NULL->value_as.null != NULL) {
         log_test("%s => %s nulls are different. Expected %p, find %p",
                 __func__,
                 TEST_FAILED,
                 NULL,
-                KV.value_as.null
+                KV_NULL->value_as.null
             );
         goto FAIL;
     }
