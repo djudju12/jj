@@ -362,7 +362,7 @@ struct Key_Value {
 };
 
 struct Item {
-    Json_Value item_as;
+    Json_Value as;
     Json_Type type;
 };
 
@@ -534,7 +534,7 @@ JSON_ERROR _json_append(Json_Array *array, Json_Value value, Json_Type type) {
     switch(type) {
         case JSON_STRING: {
             array->items[i].type = JSON_STRING;
-            Json_String *json_str = &array->items[i].item_as.string;
+            Json_String *json_str = &array->items[i].as.string;
             assert(json_str->content == NULL);
 
             unsigned int str_len = value.string.len;
@@ -550,26 +550,27 @@ JSON_ERROR _json_append(Json_Array *array, Json_Value value, Json_Type type) {
 
         case JSON_NUMBER: {
             array->items[i].type = JSON_NUMBER;
-            array->items[i].item_as.number = value.number;
+            array->items[i].as.number = value.number;
         } break;
 
         case JSON_BOOLEAN: {
             array->items[i].type = JSON_BOOLEAN;
-            array->items[i].item_as.boolean = value.boolean;
+            array->items[i].as.boolean = value.boolean;
         } break;
 
         case JSON_NULL: {
             array->items[i].type = JSON_NULL;
-            array->items[i].item_as.null = NULL;
+            array->items[i].as.null = NULL;
         } break;
 
         case JSON_OBJECT: {
             array->items[i].type = JSON_OBJECT;
-            array->items[i].item_as.object = value.object;
+            array->items[i].as.object = value.object;
         } break;
 
         case JSON_ARRAY: {
-            panic("TODO: json array inside json arrays is not implemented");
+            array->items[i].type = JSON_ARRAY;
+            array->items[i].as.array = value.array;
         } break;
 
         default: {
@@ -814,7 +815,22 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
             } break;
 
             case TOKEN_OPBRAKT: {
-                panic("TODO: array not implemented");
+                Json_Value value = {0};
+                value.array = alloc_array(&err);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
+
+                err = parse_array(value.array, tokenizer);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
+
+                err = _json_append(array, value, JSON_ARRAY);
+                if (err != JSON_NO_ERROR) {
+                    return err;
+                }
+
                 break;
             }
 
@@ -1051,7 +1067,7 @@ JSON_ERROR json_put(Json_Object *object, Key_Value *key_value) {
  *  returns an error code of `JSON_ERROR`
  */
 JSON_ERROR json_append(Json_Array *array, Item item) {
-    return _json_append(array, item.item_as, item.type);
+    return _json_append(array, item.as, item.type);
 }
 
 /*
@@ -1131,6 +1147,45 @@ char *json_to_string(Json_Object *object) {
     (void) object;
     panic("Not implemented yet");
     return "";
+}
+
+char* read_file(const char* file_path) {
+    FILE *f = fopen(file_path, "r");
+    char *content = NULL;
+    if (f == NULL) {
+        goto ERROR;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        goto ERROR;
+    }
+
+    int size = ftell(f);
+    if (size < 0) {
+        goto ERROR;
+    }
+    rewind(f);
+
+    content = malloc(sizeof(char)*size);
+    int b_read = fread(content, 1, size, f);
+    if (b_read != size) {
+        goto ERROR;
+    }
+
+    return content;
+
+ERROR:
+    if (f) fclose(f);
+    if (content) free(content);
+    return NULL;
+}
+
+int main (void) {
+    const char *file_path = "large-file.json";
+    char *j = read_file(file_path);
+    JSON_ERROR err;
+    Json *json = parse_json(j, &err);
+    if (err != JSON_NO_ERROR) panic(json_error_desc(err));
+    return 0;
 }
 
 // Copyright 2024 Jonatha Willian dos Santos

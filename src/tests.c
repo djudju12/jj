@@ -142,11 +142,13 @@ struct Test_Case_Errors errors_tests_cases[] = {
 bool test_json_doest_have_key(void);
 bool test_parse_json_array(void);
 bool test_json_multiple_keys(void);
+bool test_json_nested_arrays(void);
 
 Test other_tests[] = {
     test_json_doest_have_key,
     test_parse_json_array,
     test_json_multiple_keys,
+    test_json_nested_arrays
 };
 
 int total_tests = 0;
@@ -218,7 +220,7 @@ bool do_parsing_test(struct Test_Case *c) {
 
         Key_Value *KV = json_get(obj, c->key);
         if (KV == NULL) {
-            log_test("%s => %s key %s not finded in json", c->name, c->key, TEST_FAILED);
+            log_test("%s => %s key %s not finded in json", c->name, TEST_FAILED, c->key);
             goto FAIL;
         }
 
@@ -439,12 +441,12 @@ bool test_parse_json_array(void) {
             goto FAIL;
         }
 
-        if ((int) item.item_as.number != k) {
+        if ((int) item.as.number != k) {
             log_test("%s => %s numbers are different. Expected %d, find %d",
                     __func__,
                     TEST_FAILED,
                     k,
-                    item.item_as.number
+                    item.as.number
                 );
             goto FAIL;
         }
@@ -598,6 +600,203 @@ bool test_json_multiple_keys(void) {
     log_test("%s => %s", __func__, TEST_SUCCESS);
     return true;
 
+FAIL:
+    if (json) free(json);
+    return false;
+}
+
+bool test_json_nested_arrays(void) {
+    char *j = "[[1, [2, 3]], \"quatro\", {\"teste\": 1}]";
+    JSON_ERROR error;
+
+    Json *json = parse_json(j, &error);
+    if (error != JSON_NO_ERROR) {
+        log_test("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error));
+        goto FAIL;
+    }
+
+    if (json == NULL) {
+        log_test("%s => %s %s %s", __func__, TEST_FAILED, "cannot parse json array", j);
+        goto FAIL;
+    }
+
+    if (json->type != JSON_ARRAY) {
+        log_test("%s => %s wrong json type. Expected %s, find %s",
+            __func__,
+            TEST_FAILED,
+            json_type_desc(JSON_ARRAY),
+            json_type_desc(json->type)
+        );
+        goto FAIL;
+    }
+
+    Json_Array *array = json->as.array;
+    if (array == NULL) {
+        log_test("%s => %s %s", __func__, TEST_FAILED, "array is null");
+        goto FAIL;
+    }
+
+    if (array->len != 3) {
+        log_test("%s => %s expected len = 3, find %d", __func__, TEST_FAILED, array->len);
+        goto FAIL;
+    }
+
+    Item item1 = array->items[0];
+    if (item1.type != JSON_ARRAY) {
+        log_test("%s => %s wrong type of item 1. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_ARRAY),
+                json_type_desc(item1.type)
+            );
+        goto FAIL;
+    }
+
+    Item item11 = item1.as.array->items[0];
+    if (item11.type != JSON_NUMBER) {
+        log_test("%s => %s wrong type of item11. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_NUMBER),
+                json_type_desc(item11.type)
+            );
+        goto FAIL;
+    }
+
+    if (item11.as.number != 1.0) {
+        log_test("%s => %s Expected %lf, find %lf",
+                __func__,
+                TEST_FAILED,
+                1,
+                item11.as.number
+            );
+        goto FAIL;
+    }
+
+    Item item12 = item1.as.array->items[1];
+    if (item12.type != JSON_ARRAY) {
+        log_test("%s => %s wrong type of item12. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_ARRAY),
+                json_type_desc(item12.type)
+            );
+        goto FAIL;
+    }
+
+    Item item121 = item12.as.array->items[0];
+    if (item121.type != JSON_NUMBER) {
+        log_test("%s => %s wrong type of item121. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_NUMBER),
+                json_type_desc(item121.type)
+        );
+        goto FAIL;
+    }
+
+    if (item121.as.number != 2.0) {
+        log_test("%s => %s expected %lf, find %lf",
+                __func__,
+                TEST_FAILED,
+                2.0,
+                item121.as.number
+            );
+        goto FAIL;
+    }
+
+    Item item122 = item12.as.array->items[1];
+    if (item122.type != JSON_NUMBER) {
+        log_test("%s => %s wrong type of item122. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_NUMBER),
+                json_type_desc(item122.type)
+        );
+        goto FAIL;
+    }
+
+    if (item122.as.number != 3.0) {
+        log_test("%s => %s expected %lf, find %lf",
+                __func__,
+                TEST_FAILED,
+                3.0,
+                item122.as.number
+            );
+        goto FAIL;
+    }
+
+    if (item11.as.number != 1.0) {
+        log_test("%s => %s Expected %lf, find %lf",
+                __func__,
+                TEST_FAILED,
+                1,
+                item11.as.number
+            );
+        goto FAIL;
+    }
+
+    Item item2 = array->items[1];
+    if (item2.type != JSON_STRING) {
+        log_test("%s => %s wrong type of item 2. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_STRING),
+                json_type_desc(item1.type)
+            );
+        goto FAIL;
+    }
+
+    if (strncmp(item2.as.string.content, "quatro", item2.as.string.len) != 0) {
+        log_test("%s => %s Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                "quatro",
+                item2.as.string.content
+            );
+        goto FAIL;
+    }
+
+    Item item3 = array->items[2];
+    if (item3.type != JSON_OBJECT) {
+            log_test("%s => %s wrong type of item 2. Expected %s, find %s",
+            __func__,
+            TEST_FAILED,
+            json_type_desc(JSON_OBJECT),
+            json_type_desc(item1.type)
+        );
+        goto FAIL;
+    }
+
+    Json_Object *obj = item3.as.object;
+    Key_Value *KV = json_get(obj, "test");
+    if (KV == NULL) {
+        log_test("%s => %s key %s not finded in json", __func__, TEST_FAILED, "test");
+        goto FAIL;
+    }
+
+    if (KV->type != JSON_NUMBER) {
+            log_test("%s => %s wrong type. Expected %s, find %s",
+                __func__,
+                TEST_FAILED,
+                json_type_desc(JSON_NUMBER),
+                json_type_desc(KV->type)
+        );
+        goto FAIL;
+    }
+
+    if (KV->value_as.number != 1.0) {
+        log_test("%s => %s Expected %lf, find %lf",
+                __func__,
+                TEST_FAILED,
+                1,
+                KV->value_as.number
+            );
+        goto FAIL;
+    }
+
+    log_test("%s => %s", __func__, TEST_SUCCESS);
+    return true;
 FAIL:
     if (json) free(json);
     return false;
