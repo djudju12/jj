@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS+= -std=c99 -Wall -Wextra -Wpedantic -Wundef -Wimplicit-fallthrough
+CFLAGS= -ggdb -std=c99 -Wall -Wextra -Wpedantic -Wundef -Wimplicit-fallthrough
 
 build: out/ src/jj.c
 	$(CC) $(CFLAGS) -o out/jj src/jj.c

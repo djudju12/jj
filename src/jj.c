@@ -6,6 +6,9 @@
 #include <stdarg.h>
 #include <stdbool.h>
 
+#define ARENA_IMPLEMENTATION
+#include "arena.h"
+
 /////// Logging
 typedef
 struct {
@@ -32,6 +35,11 @@ void log_test(const char *fmt, ...);
 void panic(const char *fmt, ...);           // exits with exit code 1 after printing the message
 //////
 
+void *jj_arena_alloc(Arena *a, size_t bytes) {
+    assert(a);
+    return arena_alloc(a, bytes);
+}
+
 // API definition
 typedef enum {
     JSON_NO_ERROR = 0           ,
@@ -50,10 +58,10 @@ typedef struct Json_Object Json_Object;
 typedef struct Key_Value Key_Value;
 typedef struct Item Item;
 
-Json* parse_json(char *json_str, JSON_ERROR *err);              // parses a json string to a Json struct
+Json* parse_json(Arena *arena, char *json_str, JSON_ERROR *err);              // parses a json string to a Json struct
 Key_Value* json_get(Json_Object *object, const char *key);      // returns a key value pair from a json object
-JSON_ERROR json_put(Json_Object *object, Key_Value *key_value); // puts a key value pair in a json object
-JSON_ERROR json_append(Json_Array *array, Item item);           // appends a value to a json array
+JSON_ERROR json_put(Arena *arena, Json_Object *object, Key_Value *key_value); // puts a key value pair in a json object
+JSON_ERROR json_append(Arena *arena, Json_Array *array, Item item);           // appends a value to a json array
 bool json_del(Json_Object *object, const char *key);            // deletes a key value pair from a json object
 char *json_to_string(Json_Object *object);                      // returns a json object as a string
 char* json_error_desc(JSON_ERROR error);                        // returns the description of the error
@@ -297,6 +305,7 @@ int next_token(Json_Tokenizer *tokenizer, JSON_ERROR *err) {
         } break;
 
         default: {
+            log_error("unexpected character %c at %d", c, tokenizer->cursor);
             *err = ERR_UNEXPECTED_CHAR;
             return 0;
         }
@@ -407,7 +416,7 @@ long int hash_string(const char *str, int *op_len) {
 
 #define RETURN_ERROR_IF_END_OF_INPUT(tokenizer, err) if (next_token((tokenizer), (err)) == -1 && *(err) == JSON_NO_ERROR) return ERR_UNEXPECTED_END_OF_INPUT
 
-JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_Type type) {
+JSON_ERROR hm_put(Arena *arena, Json_Object *object, const char *key, Json_Value value, Json_Type type) {
     int len = 0;
     long int h = hash_string(key, &len);
 
@@ -420,7 +429,7 @@ JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_T
     if (*i == 0) {
         *i = object->len++;
         object->entries[*i].type = type;
-        object->entries[*i].key = malloc(sizeof(char) * len);
+        object->entries[*i].key = jj_arena_alloc(arena, sizeof(char) * len);
         strncpy(object->entries[*i].key, key, len);
     } else if (type != object->entries[*i].type) {
         panic("TODO: maybe enable updating to another type");
@@ -433,7 +442,7 @@ JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_T
 
             unsigned int str_len = value.string.len;
             if (json_str->content == NULL) {
-                json_str->content = malloc(sizeof(char) * str_len);
+                json_str->content = jj_arena_alloc(arena, sizeof(char) * str_len);
                 if (json_str->content == NULL) {
                     return ERR_NOT_ENOUGH_MEMORY;
                 }
@@ -446,7 +455,7 @@ JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_T
             }
 
             if (str_len > json_str->len) {
-                json_str->content = realloc(json_str->content, str_len);
+                json_str->content = arena_realloc(arena, json_str->content, json_str->len, str_len);
             }
 
             json_str->len = value.string.len;
@@ -474,7 +483,6 @@ JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_T
             Json_Object *old_object = object->entries[*i].value_as.object;
             if (old_object != NULL) {
                 object->entries[*i].value_as.object = value.object;
-                free(old_object);
             } else {
                 object->entries[*i].value_as.object = value.object;
             }
@@ -485,7 +493,6 @@ JSON_ERROR hm_put(Json_Object *object, const char *key, Json_Value value, Json_T
             Json_Array *old_array = object->entries[*i].value_as.array;
             if (old_array != NULL) {
                 object->entries[*i].value_as.array = value.array;
-                free(old_array);
             } else {
                 object->entries[*i].value_as.array = value.array;
             }
@@ -514,7 +521,7 @@ int json_geti(Json_Object *object, const char *key) {
     return *i;
 }
 
-JSON_ERROR _json_append(Json_Array *array, Json_Value value, Json_Type type) {
+JSON_ERROR _json_append(Arena *arena, Json_Array *array, Json_Value value, Json_Type type) {
     const int growth_factor = 2;
     if (array == NULL) {
         panic("array is a null pointer. TODO: simplify memory management");
@@ -522,7 +529,7 @@ JSON_ERROR _json_append(Json_Array *array, Json_Value value, Json_Type type) {
 
     if (array->len >= array->capacity) {
         unsigned int new_capacity = array->capacity*growth_factor;
-        array->items = realloc(array->items, new_capacity);
+        array->items = arena_realloc(arena, array->items, array->capacity, new_capacity);
         if (array->items == NULL) {
             return ERR_NOT_ENOUGH_MEMORY;
         }
@@ -538,7 +545,7 @@ JSON_ERROR _json_append(Json_Array *array, Json_Value value, Json_Type type) {
             assert(json_str->content == NULL);
 
             unsigned int str_len = value.string.len;
-            json_str->content = malloc(sizeof(char) * str_len);
+            json_str->content = jj_arena_alloc(arena, sizeof(char) * str_len);
             if (json_str->content == NULL) {
                 return ERR_NOT_ENOUGH_MEMORY;
             }
@@ -582,16 +589,15 @@ JSON_ERROR _json_append(Json_Array *array, Json_Value value, Json_Type type) {
 }
 
 /////////////////////////////////
-Json_Array *alloc_array(JSON_ERROR *err) {
-    Json_Array *array = malloc(sizeof(Json_Array));
+Json_Array *alloc_array(Arena *arena, JSON_ERROR *err) {
+    Json_Array *array = jj_arena_alloc(arena, sizeof(Json_Array));
     if (array == NULL) {
         *err = ERR_NOT_ENOUGH_MEMORY;
         return NULL;
     }
 
-    array->items = malloc(sizeof(Json_Value) * 16);
+    array->items = jj_arena_alloc(arena, sizeof(Json_Value) * 16);
     if (array->items == NULL) {
-        free(array);
         *err = ERR_NOT_ENOUGH_MEMORY;
         return NULL;
     }
@@ -612,9 +618,9 @@ void parse_string(Json_String *str, char c_str[MAX_STR_LEN]) {
     str->len = len;
 }
 
-JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
+JSON_ERROR parse_object(Arena *arena, Json_Object *object, Json_Tokenizer *tokenizer) {
     double mstrtod(char *value);
-    JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer);
+    JSON_ERROR parse_array(Arena *arena, Json_Array *array, Json_Tokenizer *tokenizer);
 
     JSON_ERROR err = 0;
     char buffer[MAX_STR_LEN];
@@ -653,7 +659,7 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
                 parse_string(&str, tokenizer->token->value);
                 value.string.content = str.content;
                 value.string.len = str.len;
-                err = hm_put(object, buffer, value, JSON_STRING);
+                err = hm_put(arena, object, buffer, value, JSON_STRING);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -663,7 +669,7 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
             case TOKEN_NULL: {
                 Json_Value value = {0};
                 value.null = NULL;
-                err = hm_put(object, buffer, value, JSON_NULL);
+                err = hm_put(arena, object, buffer, value, JSON_NULL);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -673,7 +679,7 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
                 Json_Value value = {0};
                 log_debug(FMT_TOKEN, ARG_TOKEN(tokenizer->token));
                 value.number = mstrtod(tokenizer->token->value);
-                err = hm_put(object, buffer, value, JSON_NUMBER);
+                err = hm_put(arena, object, buffer, value, JSON_NUMBER);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -682,7 +688,7 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
             case TOKEN_BOOLEAN: {
                 Json_Value value = {0};
                 value.boolean = tokenizer->token->value[0] == 't' ? true : false;
-                err = hm_put(object, buffer, value, JSON_BOOLEAN);
+                err = hm_put(arena, object, buffer, value, JSON_BOOLEAN);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -690,16 +696,16 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
 
             case TOKEN_OPCBRAKT: {
                 Json_Value value = {0};
-                value.object = malloc(sizeof(Json_Object));;
+                value.object = jj_arena_alloc(arena, sizeof(Json_Object));;
                 if (value.object == NULL) {
                     return ERR_NOT_ENOUGH_MEMORY;
                 }
 
-                err = hm_put(object, buffer, value, JSON_OBJECT);
+                err = hm_put(arena, object, buffer, value, JSON_OBJECT);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
-                err = parse_object(value.object, tokenizer);
+                err = parse_object(arena, value.object, tokenizer);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -707,17 +713,17 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
 
             case TOKEN_OPBRAKT: {
                 Json_Value value = {0};
-                value.array = alloc_array(&err);
+                value.array = alloc_array(arena, &err);
                 if (value.array == NULL) {
                     return err;
                 }
 
-                err = parse_array(value.array, tokenizer);
+                err = parse_array(arena, value.array, tokenizer);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
 
-                err = hm_put(object, buffer, value, JSON_ARRAY);
+                err = hm_put(arena, object, buffer, value, JSON_ARRAY);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -725,7 +731,7 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
             }
 
             default: {
-                panic("Invalid token %s", token_desc(tokenizer->token->type));
+                panic("Invalid token %s at %d", token_desc(tokenizer->token->type), tokenizer->cursor);
             }
         }
 
@@ -744,7 +750,7 @@ JSON_ERROR parse_object(Json_Object *object, Json_Tokenizer *tokenizer) {
     return 0;
 }
 
-JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
+JSON_ERROR parse_array(Arena *arena, Json_Array *array, Json_Tokenizer *tokenizer) {
     double mstrtod(char *value);
     JSON_ERROR err = 0;
 
@@ -754,6 +760,10 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
             return err;
         }
 
+        if (tokenizer->token->type == TOKEN_CLBRAKT) {
+            break;
+        }
+
         Json_Value value = {0};
         switch(tokenizer->token->type) {
             case TOKEN_STRING: {
@@ -761,7 +771,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
                 parse_string(&str, tokenizer->token->value);
                 value.string.content = str.content;
                 value.string.len = str.len;
-                err = _json_append(array, value, JSON_STRING);
+                err = _json_append(arena, array, value, JSON_STRING);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -769,7 +779,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
 
             case TOKEN_NULL: {
                 value.null = NULL;
-                err = _json_append(array, value, JSON_NULL);
+                err = _json_append(arena, array, value, JSON_NULL);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -777,7 +787,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
 
             case TOKEN_NUMBER: {
                 value.number = mstrtod(tokenizer->token->value);
-                err = _json_append(array, value, JSON_NUMBER);
+                err = _json_append(arena, array, value, JSON_NUMBER);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -790,7 +800,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
                     value.boolean = false;
                 }
 
-                err = _json_append(array, value, JSON_BOOLEAN);
+                err = _json_append(arena, array, value, JSON_BOOLEAN);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -798,17 +808,17 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
 
             case TOKEN_OPCBRAKT: {
                 Json_Value value = {0};
-                value.object = malloc(sizeof(Json_Object));
+                value.object = jj_arena_alloc(arena, sizeof(Json_Object));
                 if (value.object == NULL) {
                     return ERR_NOT_ENOUGH_MEMORY;
                 }
 
-                err = parse_object(value.object, tokenizer);
+                err = parse_object(arena, value.object, tokenizer);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
 
-                err = _json_append(array, value, JSON_OBJECT);
+                err = _json_append(arena, array, value, JSON_OBJECT);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -816,17 +826,17 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
 
             case TOKEN_OPBRAKT: {
                 Json_Value value = {0};
-                value.array = alloc_array(&err);
+                value.array = alloc_array(arena, &err);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
 
-                err = parse_array(value.array, tokenizer);
+                err = parse_array(arena, value.array, tokenizer);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
 
-                err = _json_append(array, value, JSON_ARRAY);
+                err = _json_append(arena, array, value, JSON_ARRAY);
                 if (err != JSON_NO_ERROR) {
                     return err;
                 }
@@ -835,7 +845,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
             }
 
             default: {
-                panic("Invalid token %s", token_desc(tokenizer->token->type));
+                panic("Invalid token %s at %d", token_desc(tokenizer->token->type), tokenizer->cursor);
             }
         }
 
@@ -853,7 +863,7 @@ JSON_ERROR parse_array(Json_Array *array, Json_Tokenizer *tokenizer) {
     return 0;
 }
 
-JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer) {
+JSON_ERROR _parse_json(Arena *arena, Json *root, Json_Tokenizer *tokenizer) {
     JSON_ERROR err = 0;
 
     next_token(tokenizer, &err);
@@ -861,19 +871,15 @@ JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer) {
         return err;
     }
 
-    if (root->type != 0) {
-        panic("root type must not be set before parsing");
-    }
-
     switch (tokenizer->token->type) {
         case TOKEN_OPCBRAKT: {
             root->type = JSON_OBJECT;
-            root->as.object = malloc(sizeof(Json_Object));
+            root->as.object = jj_arena_alloc(arena, sizeof(Json_Object));
             if (root->as.object == NULL) {
                 return ERR_NOT_ENOUGH_MEMORY;
             }
 
-            err = parse_object(root->as.object, tokenizer);
+            err = parse_object(arena, root->as.object, tokenizer);
             if (err != JSON_NO_ERROR) {
                 return err;
             }
@@ -882,12 +888,12 @@ JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer) {
 
         case TOKEN_OPBRAKT: {
             root->type = JSON_ARRAY;
-            root->as.array = alloc_array(&err);
+            root->as.array = alloc_array(arena, &err);
             if (root->as.array == NULL) {
                 return err;
             }
 
-            err = parse_array(root->as.array, tokenizer);
+            err = parse_array(arena, root->as.array, tokenizer);
             if (err != JSON_NO_ERROR) {
                 return err;
             }
@@ -1005,7 +1011,6 @@ double mstrtod(char *value) {
         c = *(value++);
     }
 
-
     /* collecting mantissa */
     int mantissa = 1;
     if (c == '.') {
@@ -1057,8 +1062,8 @@ Key_Value* json_get(Json_Object *object, const char *key) {
  *  Puts a key value pair in a json object
  *  returns an error code of `JSON_ERROR`
  */
-JSON_ERROR json_put(Json_Object *object, Key_Value *key_value) {
-    return hm_put(object, key_value->key, key_value->value_as, key_value->type);
+JSON_ERROR json_put(Arena *arena, Json_Object *object, Key_Value *key_value) {
+    return hm_put(arena, object, key_value->key, key_value->value_as, key_value->type);
 }
 
 /*
@@ -1066,8 +1071,8 @@ JSON_ERROR json_put(Json_Object *object, Key_Value *key_value) {
  *  Item is a struct that contains a Json_Value and a Json_Type
  *  returns an error code of `JSON_ERROR`
  */
-JSON_ERROR json_append(Json_Array *array, Item item) {
-    return _json_append(array, item.as, item.type);
+JSON_ERROR json_append(Arena *arena, Json_Array *array, Item item) {
+    return _json_append(arena, array, item.as, item.type);
 }
 
 /*
@@ -1078,7 +1083,6 @@ bool json_del(Json_Object *object, const char *key) {
     int i = json_geti(object, key);
     if (i == -1) return false;
 
-    free(object->entries[i].key);
     object->entries[i].key = NULL;
     object->table[HASHMAP_INDEX(hash_string(key, NULL))] = 0;
     object->len--;
@@ -1094,16 +1098,17 @@ bool json_del(Json_Object *object, const char *key) {
  *
  *  the error codes are defined in the `JSON_ERROR` enum
  */
-Json* parse_json(char *json_str, JSON_ERROR *err) {
+Json* parse_json(Arena *arena, char *json_str, JSON_ERROR *err) {
+    JSON_ERROR _parse_json(Arena *arena, Json *root, Json_Tokenizer *tokenizer);
+
     *err = 0;
-    JSON_ERROR _parse_json(Json *root, Json_Tokenizer *tokenizer);
-    Json *json = malloc(sizeof(Json));
+    Json *json = jj_arena_alloc(arena, sizeof(Json));
     if (json == NULL) {
         *err = ERR_NOT_ENOUGH_MEMORY;
         goto CLEANUP;
     }
 
-    Json_Tokenizer *tokenizer = malloc(sizeof(Json_Tokenizer));
+    Json_Tokenizer *tokenizer = jj_arena_alloc(arena, sizeof(Json_Tokenizer));
     if (tokenizer == NULL) {
         *err = ERR_NOT_ENOUGH_MEMORY;
         goto CLEANUP;
@@ -1112,28 +1117,20 @@ Json* parse_json(char *json_str, JSON_ERROR *err) {
     tokenizer->cursor = 0;
     tokenizer->json_str = json_str;
 
-    tokenizer->token = malloc(sizeof(Json_Token));
+    tokenizer->token = jj_arena_alloc(arena, sizeof(Json_Token));
     if (tokenizer->token == NULL) {
         *err = ERR_NOT_ENOUGH_MEMORY;
         goto CLEANUP;
     }
 
-    *err = _parse_json(json, tokenizer);
+    *err = _parse_json(arena, json, tokenizer);
     if (*err != JSON_NO_ERROR) {
         goto CLEANUP;
     }
 
-    free(tokenizer->token);
-    free(tokenizer);
     return json;
 
 CLEANUP:
-    if (json) free(json);
-    if (tokenizer) {
-        if (tokenizer->token) free(tokenizer->token);
-        free(tokenizer);
-    }
-
     return NULL;
 }
 
@@ -1180,11 +1177,13 @@ ERROR:
 }
 
 int main (void) {
-    const char *file_path = "large-file.json";
+    log_init(&log_config);
+    const char *file_path = "large-file-mini.json";
     char *j = read_file(file_path);
     JSON_ERROR err;
-    Json *json = parse_json(j, &err);
-    if (err != JSON_NO_ERROR) panic(json_error_desc(err));
+    Arena arena = {0};
+    Json *json = parse_json(&arena, j, &err);
+    if (err != JSON_NO_ERROR || json == NULL) panic(json_error_desc(err));
     return 0;
 }
 

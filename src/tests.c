@@ -189,9 +189,9 @@ bool do_parsing_test(struct Test_Case *c) {
     JSON_ERROR error;
     for (size_t i = 0; i < ARRAY_SIZE(c->input); i++) {
         if (*c->input[i] == '\0') break;
-
+        Arena arena = {0};
         char *json_str = c->input[i];
-        json = parse_json(json_str, &error);
+        json = parse_json(&arena, json_str, &error);
         if (error != JSON_NO_ERROR) {
             log_test("%s => %s %s %s", c->name, TEST_FAILED, json_error_desc(error), json_str);
             goto FAIL;
@@ -299,46 +299,41 @@ bool do_parsing_test(struct Test_Case *c) {
             default: { panic("Unreachable code"); } break;
         }
 
-        free(json);
+        arena_free(&arena);
     }
 
     log_test("%s => %s", c->name, TEST_SUCCESS);
     return true;
 
 FAIL:
-    if (json) free(json);
     return false;
 }
 
 bool do_errors_test(struct Test_Case_Errors *er) {
-    Json *json;
     JSON_ERROR error;
+    Arena arena = {0};
     for (size_t i = 0; i < ARRAY_SIZE(er->input); i++) {
         if (*er->input[i] == '\0') break;
-
         char *json_str = er->input[i];
-        json = parse_json(json_str, &error);
+        Json *json = parse_json(&arena, json_str, &error);
         if (error != er->expected) {
             log_test("%s => %s `%s` != `%s` | %s", er->name, TEST_FAILED, json_error_desc(error), json_error_desc(er->expected), er->input[i]);
             goto FAIL;
         }
-
-        if (json) free(json);
     }
 
     log_test("%s => %s", er->name, TEST_SUCCESS);
     return true;
 
 FAIL:
-    if (json) free(json);
     return false;
 }
 
 bool test_json_doest_have_key(void) {
     JSON_ERROR error;
     char *j = "{\"hello\": \"world\"}";
-
-    Json *json = parse_json(j, &error);
+    Arena arena = {0};
+    Json *json = parse_json(&arena, j, &error);
     if (error != JSON_NO_ERROR) {
         log_test("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error), j);
         goto FAIL;
@@ -365,7 +360,6 @@ bool test_json_doest_have_key(void) {
     return true;
 
 FAIL:
-    if (json) free(json);
     return false;
 }
 
@@ -373,7 +367,8 @@ bool test_parse_json_array(void) {
     JSON_ERROR error;
 
     char *j = "{\"array\": [1, 2, 3, 4, 5]}";
-    Json *json = parse_json(j, &error);
+    Arena arena = {0};
+    Json *json = parse_json(&arena, j, &error);
     if (error != JSON_NO_ERROR) {
         log_test("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error), j);
         goto FAIL;
@@ -452,12 +447,10 @@ bool test_parse_json_array(void) {
         }
     }
 
-    free(json);
     log_test("%s => %s", __func__, TEST_SUCCESS);
     return true;
 
 FAIL:
-    if (json) free(json);
     return false;
 }
 
@@ -465,7 +458,8 @@ bool test_json_multiple_keys(void) {
     char *j = "{\"hello\": \"world\", \"number\": 1, \"bool\": true, \"null\": null}";
     JSON_ERROR error;
 
-    Json *json = parse_json(j, &error);
+    Arena arena = {0};
+    Json *json = parse_json(&arena, j, &error);
     if (error != JSON_NO_ERROR) {
         log_test("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error), j);
         goto FAIL;
@@ -596,12 +590,10 @@ bool test_json_multiple_keys(void) {
         goto FAIL;
     }
 
-    free(json);
     log_test("%s => %s", __func__, TEST_SUCCESS);
     return true;
 
 FAIL:
-    if (json) free(json);
     return false;
 }
 
@@ -609,7 +601,8 @@ bool test_json_nested_arrays(void) {
     char *j = "[[1, [2, 3]], \"quatro\", {\"teste\": 1}]";
     JSON_ERROR error;
 
-    Json *json = parse_json(j, &error);
+    Arena arena = {0};
+    Json *json = parse_json(&arena, j, &error);
     if (error != JSON_NO_ERROR) {
         log_test("%s => %s %s %s", __func__, TEST_FAILED, json_error_desc(error));
         goto FAIL;
@@ -798,7 +791,6 @@ bool test_json_nested_arrays(void) {
     log_test("%s => %s", __func__, TEST_SUCCESS);
     return true;
 FAIL:
-    if (json) free(json);
     return false;
 }
 
